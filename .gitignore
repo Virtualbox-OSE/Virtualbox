@@ -30,3 +30,9 @@
 *.exe
 *.out
 *.app
+
+# Virtualbox-specific
+AutoConfig.kmk
+LocalConfig.kmk 
+configure.log 
+env.bat
