@@ -1072,6 +1072,14 @@ endif
 ## @todo Currently combined solaris additions building assumes that amd64 is
 # built first. The windows amd64 additions need some x86 files, so don't change
 # the order of the windows builds. TODO: Split building and packing for these two VMs.
+ifdef VBOX_ADDITIONS_WINDOWS_ONLY
+
+additions-build: \
+	additions-build-win.x86 \
+	additions-build-win.amd64
+	
+else
+
 additions-build: \
 	additions-build-rsync-into-vms \
 	additions-build-win.x86 \
@@ -1082,6 +1090,8 @@ additions-build: \
 	additions-build-linux \
 	additions-build-darwin.x86 \
 	additions-build-darwin.amd64
+	
+endif
 
 additions-build-rsync-into-vms: \
 		additions-build-solaris.rsync-into-vm \
