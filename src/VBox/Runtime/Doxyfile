@@ -2089,6 +2089,47 @@ PREDEFINED             = DOXYGEN_RUNNING \
                          RT_IPRT_FORMAT_ATTR_MAYBE_NULL(a,b)= \
                          RT_NO_THROW_PROTO=
 
+PREDEFINED += \
+    AssertCompile(expr) \
+    AssertCompileSize(a,b) \
+    AssertCompileSizeAlignment(a,b) \
+    AssertCompileMemberSizeAlignment(a,b,c) \
+    AssertCompileMemberAlignment(a,b,c) \
+    AssertCompileMemberOffset(a,b,c) \
+    AssertCompile2MemberOffsets(a,b,c)
+
+# decl and calling conventions.
+PREDEFINED += \
+    DECL_NOTHROW(a_RetType)=a_RetType \
+    "DECLINLINE(type)=inline type" \
+    DECL_INLINE_THROW(type)=DECLINLINE(type) \
+    DECL_FORCE_INLINE(type)=DECLINLINE(type) \
+    DECL_NO_INLINE(type)=type \
+    DECL_NO_RETURN(type)=type \
+    DECLCALLBACK(type)=type \
+    "DECLCALLBACKPTR(type,name)=type (* name)" \
+    "DECLCALLBACKMEMBER(type,name)=type (* name)" \
+    "DECLRCCALLBACKMEMBER(type,name,args)=type (* name) args" \
+    "DECLR3CALLBACKMEMBER(type,name,args)=type (* name) args" \
+    "DECLR0CALLBACKMEMBER(type,name,args)=type (* name) args" \
+    "DECLRGCALLBACKMEMBER(type,name,args)=type (* name) args" \
+    DECLEXPORT(type)=type \
+    DECL_EXPORT_NOTHROW(type)=type \
+    DECLIMPORT(type)=type \
+    DECL_IMPORT_NOTHROW(type)=type \
+    DECLHIDDEN(type)=type \
+    DECL_HIDDEN_NOTHROW(type)=type \
+    DECL_HIDDEN_ONLY(type)=type \
+    DECL_HIDDEN_THROW(type)=type \
+    DECL_HIDDEN_DATA(type)=type \
+    DECL_HIDDEN_CONST(type)=type \
+    DECL_HIDDEN_CALLBACK(type)=type \
+    DECLASM(type)=type \
+    RT_ASM_DECL_PRAGMA_WATCOM(type)=type \
+    RT_ASM_DECL_PRAGMA_WATCOM_386(type)=type \
+    DECLNORETURN(type)=type \
+    RTCALL=
+
 # If the MACRO_EXPANSION and EXPAND_ONLY_PREDEF tags are set to YES then this
 # tag can be used to specify a list of macro names that should be expanded. The
 # macro definition that is found in the sources will be used. Use the PREDEFINED
@@ -2107,16 +2148,7 @@ EXPAND_AS_DEFINED      = ARCH_BITS \
                          R0PTRTYPE \
                          R3PTRTYPE \
                          R3R0PTRTYPE \
-                         DECLEXPORT \
-                         DECLIMPORT \
-                         DECLHIDDEN \
-                         DECLASM \
                          DECLASMTYPE \
-                         DECLCALLBACKMEMBER \
-                         DECLHCCALLBACKMEMBER \
-                         DECLRCCALLBACKMEMBER \
-                         DECLR3CALLBACKMEMBER \
-                         DECLR0CALLBACKMEMBER \
                          RTR3DECL \
                          RTR0DECL \
                          RTRCDECL \

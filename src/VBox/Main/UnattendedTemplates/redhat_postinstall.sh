@@ -27,7 +27,8 @@ MY_CHROOT_CDROM="/cdrom"
 MY_CDROM_NOCHROOT="/tmp/vboxcdrom"
 MY_EXITCODE=0
 MY_DEBUG="" # "yes"
-
+GUEST_VERSION=@@VBOX_INSERT_GUEST_OS_VERSION@@
+GUEST_MAJOR_VERSION=@@VBOX_INSERT_GUEST_OS_MAJOR_VERSION@@
 
 #
 # Do we need to exec using target bash?  If so, we must do that early
@@ -161,6 +162,16 @@ fi
 
 
 #
+# Add EPEL repository
+#
+EPEL_REPOSITORY="https://dl.fedoraproject.org/pub/epel/epel-release-latest-${GUEST_MAJOR_VERSION}.noarch.rpm"
+log_command_in_target wget ${EPEL_REPOSITORY}
+log_command_in_target yum localinstall -y "epel-release-latest-${GUEST_MAJOR_VERSION}.noarch.rpm"
+log_command_in_target yum install -y yum-utils
+log_command_in_target yum-config-manager --enable epel
+
+
+#
 # Packages needed for GAs.
 #
 echo "--------------------------------------------------" >> "${MY_LOGFILE}"
@@ -170,10 +181,23 @@ log_command_in_target yum -y install "kernel-headers-$(uname -r)"
 log_command_in_target yum -y install gcc
 log_command_in_target yum -y install binutils
 log_command_in_target yum -y install make
+@@VBOX_COND_GUEST_VERSION[>8.0.0]@@
+log_command_in_target yum -y install elfutils-libelf-devel
+@@VBOX_COND_END@@
 log_command_in_target yum -y install dkms
 log_command_in_target yum -y install make
 log_command_in_target yum -y install bzip2
 log_command_in_target yum -y install perl
+
+
+#
+#Package cloud-init is needed for possible automation the initial setup of virtual machine
+#
+log_command_in_target yum -y install cloud-init
+log_command_in_target systemctl enable cloud-init-local.service
+log_command_in_target systemctl enable cloud-init.service
+log_command_in_target systemctl enable cloud-config.service
+log_command_in_target systemctl enable cloud-final.service
 
 
 #

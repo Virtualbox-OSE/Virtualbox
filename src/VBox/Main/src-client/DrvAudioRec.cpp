@@ -1,6 +1,18 @@
 /* $Id: DrvAudioRec.cpp $ */
 /** @file
  * Video recording audio backend for Main.
+ *
+ * This driver is part of Main and is responsible for providing audio
+ * data to Main's video capturing feature.
+ *
+ * The driver itself implements a PDM host audio backend, which in turn
+ * provides the driver with the required audio data and audio events.
+ *
+ * For now there is support for the following destinations (called "sinks"):
+ *
+ * - Direct writing of .webm files to the host.
+ * - Communicating with Main via the Console object to send the encoded audio data to.
+ *   The Console object in turn then will route the data to the Display / video capturing interface then.
  */
 
 /*
@@ -64,20 +76,6 @@
  *
  */
 
-/**
- * This driver is part of Main and is responsible for providing audio
- * data to Main's video capturing feature.
- *
- * The driver itself implements a PDM host audio backend, which in turn
- * provides the driver with the required audio data and audio events.
- *
- * For now there is support for the following destinations (called "sinks"):
- *
- * - Direct writing of .webm files to the host.
- * - Communicating with Main via the Console object to send the encoded audio data to.
- *   The Console object in turn then will route the data to the Display / video capturing interface then.
- */
-
 
 /*********************************************************************************************************************************
 *   Header Files                                                                                                                 *
@@ -88,15 +86,15 @@
 #include "DrvAudioRec.h"
 #include "ConsoleImpl.h"
 
-#include "../../Devices/Audio/DrvAudio.h"
 #include "WebMWriter.h"
 
 #include <iprt/mem.h>
 #include <iprt/cdefs.h>
 
-#include <VBox/vmm/pdmaudioifs.h>
-#include <VBox/vmm/pdmdrv.h>
 #include <VBox/vmm/cfgm.h>
+#include <VBox/vmm/pdmdrv.h>
+#include <VBox/vmm/pdmaudioifs.h>
+#include <VBox/vmm/pdmaudioinline.h>
 #include <VBox/err.h>
 
 #ifdef VBOX_WITH_LIBOPUS
@@ -107,9 +105,8 @@
 /*********************************************************************************************************************************
 *   Defines                                                                                                                      *
 *********************************************************************************************************************************/
-
-#define AVREC_OPUS_HZ_MAX               48000           /** Maximum sample rate (in Hz) Opus can handle. */
-#define AVREC_OPUS_FRAME_MS_DEFAULT     20              /** Default Opus frame size (in ms). */
+#define AVREC_OPUS_HZ_MAX               48000   /**< Maximum sample rate (in Hz) Opus can handle. */
+#define AVREC_OPUS_FRAME_MS_DEFAULT     20      /**< Default Opus frame size (in ms). */
 
 
 /*********************************************************************************************************************************
@@ -437,7 +434,7 @@ static int avRecSinkInit(PDRVAUDIORECORDING pThis, PAVRECSINK pSink, PAVRECCONTA
         if (!pCodec->Opus.msFrame)
             pCodec->Opus.msFrame = AVREC_OPUS_FRAME_MS_DEFAULT; /* 20ms by default; to prevent division by zero. */
         pCodec->Opus.csFrame = pSink->Codec.Parms.PCMProps.uHz / (1000 /* s in ms */ / pSink->Codec.Opus.msFrame);
-        pCodec->Opus.cbFrame = DrvAudioHlpFramesToBytes(pCodec->Opus.csFrame, &pSink->Codec.Parms.PCMProps);
+        pCodec->Opus.cbFrame = PDMAudioPropsFramesToBytes(&pSink->Codec.Parms.PCMProps, pCodec->Opus.csFrame);
 
 #ifdef VBOX_WITH_STATISTICS
         pSink->Codec.STAM.cEncFrames = 0;
@@ -553,9 +550,9 @@ static int avRecCreateStreamOut(PDRVAUDIORECORDING pThis, PAVRECSTREAM pStreamAV
                     pCfgAcq->Props.cShift      = PDMAUDIOPCMPROPS_MAKE_SHIFT_PARMS(pCfgAcq->Props.cbSample, pCfgAcq->Props.cChannels);
 
                     /* Every Opus frame marks a period for now. Optimize this later. */
-                    pCfgAcq->Backend.cFramesPeriod     = DrvAudioHlpMilliToFrames(pSink->Codec.Opus.msFrame, &pCfgAcq->Props);
-                    pCfgAcq->Backend.cFramesBufferSize = DrvAudioHlpMilliToFrames(100 /* ms */, &pCfgAcq->Props); /** @todo Make this configurable. */
-                    pCfgAcq->Backend.cFramesPreBuffering     = pCfgAcq->Backend.cFramesPeriod * 2;
+                    pCfgAcq->Backend.cFramesPeriod       = PDMAudioPropsMilliToFrames(&pCfgAcq->Props, pSink->Codec.Opus.msFrame);
+                    pCfgAcq->Backend.cFramesBufferSize   = PDMAudioPropsMilliToFrames(&pCfgAcq->Props, 100 /*ms*/); /** @todo Make this configurable. */
+                    pCfgAcq->Backend.cFramesPreBuffering = pCfgAcq->Backend.cFramesPeriod * 2;
                 }
             }
             else
@@ -940,7 +937,7 @@ static DECLCALLBACK(int) drvAudioVideoRecHA_StreamCreate(PPDMIHOSTAUDIO pInterfa
     int rc = avRecCreateStreamOut(pThis, pStreamAV, pSink, pCfgReq, pCfgAcq);
     if (RT_SUCCESS(rc))
     {
-        pStreamAV->pCfg = DrvAudioHlpStreamCfgDup(pCfgAcq);
+        pStreamAV->pCfg = PDMAudioStrmCfgDup(pCfgAcq);
         if (!pStreamAV->pCfg)
             rc = VERR_NO_MEMORY;
     }
@@ -970,7 +967,7 @@ static DECLCALLBACK(int) drvAudioVideoRecHA_StreamDestroy(PPDMIHOSTAUDIO pInterf
 
     if (RT_SUCCESS(rc))
     {
-        DrvAudioHlpStreamCfgFree(pStreamAV->pCfg);
+        PDMAudioStrmCfgFree(pStreamAV->pCfg);
         pStreamAV->pCfg = NULL;
     }
 
@@ -1232,7 +1229,7 @@ DECLCALLBACK(int) AudioVideoRec::drvConstruct(PPDMDRVINS pDrvIns, PCFGMNODE pCfg
     pPCMProps->fSigned     = true;
     pPCMProps->fSwapEndian = false;
 
-    AssertMsgReturn(DrvAudioHlpPCMPropsAreValid(pPCMProps),
+    AssertMsgReturn(PDMAudioPropsAreValid(pPCMProps),
                     ("Configuration error: Audio configuration is invalid!\n"), VERR_PDM_DRVINS_UNKNOWN_CFG_VALUES);
 
     pThis->pAudioVideoRec = (AudioVideoRec *)pvUser;

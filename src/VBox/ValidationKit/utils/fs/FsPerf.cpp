@@ -267,6 +267,7 @@ typedef struct FSPERFNAMEENTRY
 {
     RTLISTNODE  Entry;
     uint16_t    cchName;
+    RT_FLEXIBLE_ARRAY_EXTENSION
     char        szName[RT_FLEXIBLE_ARRAY];
 } FSPERFNAMEENTRY;
 typedef FSPERFNAMEENTRY *PFSPERFNAMEENTRY;
@@ -6672,7 +6673,7 @@ int main(int argc, char *argv[])
 
             case 'V':
             {
-                char szRev[] = "$Revision: 135976 $";
+                char szRev[] = "$Revision: 142330 $";
                 szRev[RT_ELEMENTS(szRev) - 2] = '\0';
                 RTPrintf(RTStrStrip(strchr(szRev, ':') + 1));
                 return RTEXITCODE_SUCCESS;

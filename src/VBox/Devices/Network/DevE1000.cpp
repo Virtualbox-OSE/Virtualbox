@@ -1122,6 +1122,8 @@ typedef struct E1KSTATE
 #ifdef E1K_WITH_TXD_CACHE
     /** TX: Fetched TX descriptors. */
     E1KTXDESC   aTxDescriptors[E1K_TXD_CACHE_SIZE];
+    /** TX: Validity of TX descriptors. Set by e1kLocateTxPacket, used by e1kXmitPacket. */
+    bool        afTxDValid[E1K_TXD_CACHE_SIZE];
     /** TX: Actual number of fetched TX descriptors. */
     uint8_t     nTxDFetched;
     /** TX: Index in cache of TX descriptor being processed. */
@@ -1379,6 +1381,7 @@ static FNE1KREGWRITE e1kRegWriteEERD;
 static FNE1KREGWRITE e1kRegWriteMDIC;
 static FNE1KREGREAD  e1kRegReadICR;
 static FNE1KREGWRITE e1kRegWriteICR;
+static FNE1KREGREAD  e1kRegReadICS;
 static FNE1KREGWRITE e1kRegWriteICS;
 static FNE1KREGWRITE e1kRegWriteIMS;
 static FNE1KREGWRITE e1kRegWriteIMC;
@@ -1434,7 +1437,7 @@ static const struct E1kRegMap_st
     { 0x00038, 0x00004, 0x0000FFFF, 0x0000FFFF, e1kRegReadDefault      , e1kRegWriteDefault      , "VET"     , "VLAN EtherType" },
     { 0x000c0, 0x00004, 0x0001F6DF, 0x0001F6DF, e1kRegReadICR          , e1kRegWriteICR          , "ICR"     , "Interrupt Cause Read" },
     { 0x000c4, 0x00004, 0x0000FFFF, 0x0000FFFF, e1kRegReadDefault      , e1kRegWriteDefault      , "ITR"     , "Interrupt Throttling" },
-    { 0x000c8, 0x00004, 0x00000000, 0xFFFFFFFF, e1kRegReadUnimplemented, e1kRegWriteICS          , "ICS"     , "Interrupt Cause Set" },
+    { 0x000c8, 0x00004, 0x0001F6DF, 0xFFFFFFFF, e1kRegReadICS          , e1kRegWriteICS          , "ICS"     , "Interrupt Cause Set" },
     { 0x000d0, 0x00004, 0xFFFFFFFF, 0xFFFFFFFF, e1kRegReadDefault      , e1kRegWriteIMS          , "IMS"     , "Interrupt Mask Set/Read" },
     { 0x000d8, 0x00004, 0x00000000, 0xFFFFFFFF, e1kRegReadUnimplemented, e1kRegWriteIMC          , "IMC"     , "Interrupt Mask Clear" },
     { 0x00100, 0x00004, 0xFFFFFFFF, 0xFFFFFFFF, e1kRegReadDefault      , e1kRegWriteRCTL         , "RCTL"    , "Receive Control" },
@@ -1730,6 +1733,12 @@ DECLINLINE(bool) e1kUpdateRxDContext(PPDMDEVINS pDevIns, PE1KSTATE pThis, PE1KRX
     pContext->rdh   = RDH;
     pContext->rdt   = RDT;
     uint32_t cRxRingSize = pContext->rdlen / sizeof(E1KRXDESC);
+    /*
+     * Note that the checks for RDT are a bit different. Some guests, OS/2 for
+     * example, intend to use all descriptors in RX ring, so they point RDT
+     * right beyond the last descriptor in the ring. While this is not
+     * acceptable for other registers, it works out fine for RDT.
+     */
 #ifdef DEBUG
     if (pContext->rdh >= cRxRingSize)
     {
@@ -1737,16 +1746,16 @@ DECLINLINE(bool) e1kUpdateRxDContext(PPDMDEVINS pDevIns, PE1KSTATE pThis, PE1KRX
              pThis->szPrf, pcszCallee, pContext->rdh, cRxRingSize));
         return VINF_SUCCESS;
     }
-    if (pContext->rdt >= cRxRingSize)
+    if (pContext->rdt > cRxRingSize)
     {
-        Log(("%s e1kUpdateRxDContext: called from %s, will return false because RDT too big (%u >= %u)\n",
+        Log(("%s e1kUpdateRxDContext: called from %s, will return false because RDT too big (%u > %u)\n",
              pThis->szPrf, pcszCallee, pContext->rdt, cRxRingSize));
         return VINF_SUCCESS;
     }
 #else /* !DEBUG */
     RT_NOREF(pcszCallee);
 #endif /* !DEBUG */
-    return pContext->rdh < cRxRingSize && pContext->rdt < cRxRingSize; // && (RCTL & RCTL_EN);
+    return pContext->rdh < cRxRingSize && pContext->rdt <= cRxRingSize; // && (RCTL & RCTL_EN);
 }
 #endif /* E1K_WITH_RXD_CACHE */
 
@@ -2882,6 +2891,26 @@ static int e1kRegReadCTRL(PE1KSTATE pThis, uint32_t offset, uint32_t index, uint
 #endif /* unused */
 
 /**
+ * A helper function to detect the link state to the other side of "the wire".
+ *
+ * When deciding to bring up the link we need to take into account both if the
+ * cable is connected and if our device is actually connected to the outside
+ * world. If no driver is attached we won't be able to allocate TX buffers,
+ * which will prevent us from TX descriptor processing, which will result in
+ * "TX unit hang" in the guest.
+ *
+ * @returns true if the device is connected to something.
+ *
+ * @param   pDevIns     The device instance.
+ */
+DECLINLINE(bool) e1kIsConnected(PPDMDEVINS pDevIns)
+{
+    PE1KSTATE     pThis   = PDMDEVINS_2_DATA(pDevIns, PE1KSTATE);
+    PE1KSTATECC   pThisCC = PDMDEVINS_2_DATA_CC(pDevIns, PE1KSTATECC);
+    return pThis->fCableConnected && pThisCC->CTX_SUFF(pDrv);
+}
+
+/**
  * A callback used by PHY to indicate that the link needs to be updated due to
  * reset of PHY.
  *
@@ -2893,7 +2922,7 @@ void e1kPhyLinkResetCallback(PPDMDEVINS pDevIns)
     PE1KSTATE pThis = PDMDEVINS_2_DATA(pDevIns, PE1KSTATE);
 
     /* Make sure we have cable connected and MAC can talk to PHY */
-    if (pThis->fCableConnected && (CTRL & CTRL_SLU))
+    if (e1kIsConnected(pDevIns) && (CTRL & CTRL_SLU))
         e1kArmTimer(pDevIns, pThis, pThis->hLUTimer, E1K_INIT_LINKUP_DELAY_US);
 }
 
@@ -2940,7 +2969,7 @@ static int e1kRegWriteCTRL(PPDMDEVINS pDevIns, PE1KSTATE pThis, uint32_t offset,
 #else /* !E1K_LSC_ON_SLU */
         if (   (value & CTRL_SLU)
             && !(CTRL & CTRL_SLU)
-            && pThis->fCableConnected
+            && e1kIsConnected(pDevIns)
             && !PDMDevHlpTimerIsActive(pDevIns, pThis->hLUTimer))
         {
             /* PXE does not use LSC interrupts, see @bugref{9113}. */
@@ -3229,6 +3258,25 @@ static int e1kRegReadICR(PPDMDEVINS pDevIns, PE1KSTATE pThis, uint32_t offset, u
     e1kCsLeave(pThis);
 
     return rc;
+}
+
+/**
+ * Read handler for Interrupt Cause Set register.
+ *
+ * VxWorks driver uses this undocumented feature of real H/W to read ICR without acknowledging interrupts.
+ *
+ * @returns VBox status code.
+ *
+ * @param   pThis       The device state structure.
+ * @param   offset      Register offset in memory-mapped frame.
+ * @param   index       Register index in register array.
+ * @param   pu32Value   Where to store the value of the register.
+ * @thread  EMT
+ */
+static int e1kRegReadICS(PPDMDEVINS pDevIns, PE1KSTATE pThis, uint32_t offset, uint32_t index, uint32_t *pu32Value)
+{
+    RT_NOREF_PV(index);
+    return e1kRegReadDefault(pDevIns, pThis, offset, ICR_IDX, pu32Value);
 }
 
 /**
@@ -3670,7 +3718,7 @@ static DECLCALLBACK(void) e1kR3LinkUpTimer(PPDMDEVINS pDevIns, PTMTIMER pTimer, 
      * and connect+disconnect the cable very quick. Moreover, 82543GC triggers LSC
      * on reset even if the cable is unplugged (see @bugref{8942}).
      */
-    if (pThis->fCableConnected)
+    if (e1kIsConnected(pDevIns))
     {
         /* 82543GC does not have an internal PHY */
         if (pThis->eChip == E1K_CHIP_82543GC || (CTRL & CTRL_SLU))
@@ -5144,13 +5192,6 @@ static int e1kXmitDesc(PPDMDEVINS pDevIns, PE1KSTATE pThis, PE1KSTATECC pThisCC,
 
     e1kPrintTDesc(pThis, pDesc, "vvv");
 
-    if (pDesc->legacy.dw3.fDD)
-    {
-        E1kLog(("%s e1kXmitDesc: skipping bad descriptor ^^^\n", pThis->szPrf));
-        e1kDescReport(pDevIns, pThis, pDesc, addr);
-        return VINF_SUCCESS;
-    }
-
 //#ifdef E1K_USE_TX_TIMERS
     if (pThis->fTidEnabled)
         PDMDevHlpTimerStop(pDevIns, pThis->hTIDTimer);
@@ -5173,7 +5214,7 @@ static int e1kXmitDesc(PPDMDEVINS pDevIns, PE1KSTATE pThis, PE1KSTATECC pThisCC,
             STAM_PROFILE_ADV_START(&pThis->CTX_SUFF_Z(StatTransmit), a);
             if (pDesc->data.cmd.u20DTALEN == 0 || pDesc->data.u64BufAddr == 0)
             {
-                E1kLog2(("% Empty data descriptor, skipped.\n", pThis->szPrf));
+                E1kLog2(("%s Empty data descriptor, skipped.\n", pThis->szPrf));
                 if (pDesc->data.cmd.fEOP)
                 {
                     e1kTransmitFrame(pDevIns, pThis, pThisCC, fOnWorkerThread);
@@ -5299,7 +5340,7 @@ static int e1kXmitDesc(PPDMDEVINS pDevIns, PE1KSTATE pThis, PE1KSTATECC pThisCC,
     return rc;
 }
 
-DECLINLINE(void) e1kUpdateTxContext(PE1KSTATE pThis, E1KTXDESC *pDesc)
+DECLINLINE(bool) e1kUpdateTxContext(PE1KSTATE pThis, E1KTXDESC *pDesc)
 {
     if (pDesc->context.dw2.fTSE)
     {
@@ -5330,6 +5371,7 @@ DECLINLINE(void) e1kUpdateTxContext(PE1KSTATE pThis, E1KTXDESC *pDesc)
              pDesc->context.tu.u8CSS,
              pDesc->context.tu.u8CSO,
              pDesc->context.tu.u16CSE));
+    return true; /* Consider returning false for invalid descriptors */
 }
 
 static bool e1kLocateTxPacket(PE1KSTATE pThis)
@@ -5347,14 +5389,18 @@ static bool e1kLocateTxPacket(PE1KSTATE pThis)
     bool fTSE = false;
     uint32_t cbPacket = 0;
 
+    /* Since we process one packet at a time we will only mark current packet's descriptors as valid */
+    memset(pThis->afTxDValid, 0, sizeof(pThis->afTxDValid));
     for (int i = pThis->iTxDCurrent; i < pThis->nTxDFetched; ++i)
     {
         E1KTXDESC *pDesc = &pThis->aTxDescriptors[i];
+        /* Assume the descriptor valid until proven otherwise. */
+        pThis->afTxDValid[i] = true;
         switch (e1kGetDescType(pDesc))
         {
             case E1K_DTYP_CONTEXT:
                 if (cbPacket == 0)
-                    e1kUpdateTxContext(pThis, pDesc);
+                    pThis->afTxDValid[i] = e1kUpdateTxContext(pThis, pDesc);
                 else
                     E1kLog(("%s e1kLocateTxPacket: ignoring a context descriptor in the middle of a packet, cbPacket=%d\n",
                             pThis->szPrf, cbPacket));
@@ -5365,7 +5411,7 @@ static bool e1kLocateTxPacket(PE1KSTATE pThis)
                 {
                     E1kLog(("%s e1kLocateTxPacket: ignoring a legacy descriptor in the segmentation context, cbPacket=%d\n",
                             pThis->szPrf, cbPacket));
-                    pDesc->legacy.dw3.fDD = true; /* Make sure it is skipped by processing */
+                    pThis->afTxDValid[i] = false; /* Make sure it is skipped by processing */
                     continue;
                 }
                 /* Skip empty descriptors. */
@@ -5380,7 +5426,7 @@ static bool e1kLocateTxPacket(PE1KSTATE pThis)
                 {
                     E1kLog(("%s e1kLocateTxPacket: ignoring %sTSE descriptor in the %ssegmentation context, cbPacket=%d\n",
                             pThis->szPrf, pDesc->data.cmd.fTSE ? "" : "non-", fTSE ? "" : "non-", cbPacket));
-                    pDesc->data.dw3.fDD = true; /* Make sure it is skipped by processing */
+                    pThis->afTxDValid[i] = false; /* Make sure it is skipped by processing */
                     continue;
                 }
                 /* Skip empty descriptors. */
@@ -5465,7 +5511,15 @@ static int e1kXmitPacket(PPDMDEVINS pDevIns, PE1KSTATE pThis, bool fOnWorkerThre
         E1KTXDESC *pDesc = &pThis->aTxDescriptors[pThis->iTxDCurrent];
         E1kLog3(("%s About to process new TX descriptor at %08x%08x, TDLEN=%08x, TDH=%08x, TDT=%08x\n",
                  pThis->szPrf, TDBAH, TDBAL + pTxdc->tdh * sizeof(E1KTXDESC), pTxdc->tdlen, pTxdc->tdh, pTxdc->tdt));
-        rc = e1kXmitDesc(pDevIns, pThis, pThisCC, pDesc, e1kDescAddr(TDBAH, TDBAL, pTxdc->tdh), fOnWorkerThread);
+        if (!pThis->afTxDValid[pThis->iTxDCurrent])
+        {
+            e1kPrintTDesc(pThis, pDesc, "vvv");
+            E1kLog(("%s e1kXmitDesc: skipping bad descriptor ^^^\n", pThis->szPrf));
+            e1kDescReport(pDevIns, pThis, pDesc, e1kDescAddr(TDBAH, TDBAL, pTxdc->tdh));
+            rc = VINF_SUCCESS;
+        }
+        else
+            rc = e1kXmitDesc(pDevIns, pThis, pThisCC, pDesc, e1kDescAddr(TDBAH, TDBAL, pTxdc->tdh), fOnWorkerThread);
         if (RT_FAILURE(rc))
             break;
         if (++pTxdc->tdh * sizeof(E1KTXDESC) >= pTxdc->tdlen)

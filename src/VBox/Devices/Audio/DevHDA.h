@@ -1,6 +1,6 @@
-/* $Id: DevHDA.h $ */
+/* $Id: DevHda.h $ */
 /** @file
- * DevHDA.h - VBox Intel HD Audio Controller.
+ * Intel HD Audio Controller Emulation - Structures.
  */
 
 /*
@@ -15,8 +15,8 @@
  * hope that it will be useful, but WITHOUT ANY WARRANTY of any kind.
  */
 
-#ifndef VBOX_INCLUDED_SRC_Audio_DevHDA_h
-#define VBOX_INCLUDED_SRC_Audio_DevHDA_h
+#ifndef VBOX_INCLUDED_SRC_Audio_DevHda_h
+#define VBOX_INCLUDED_SRC_Audio_DevHda_h
 #ifndef RT_WITHOUT_PRAGMA_ONCE
 # pragma once
 #endif
@@ -27,12 +27,15 @@
 
 #include "AudioMixer.h"
 
-#include "HDACodec.h"
-#include "HDAStream.h"
-#include "HDAStreamMap.h"
-#include "HDAStreamPeriod.h"
+#include "DevHdaCodec.h"
+#include "DevHdaStream.h"
+#include "DevHdaStreamMap.h"
 
-
+#ifdef DEBUG_andy
+/** Enables strict mode, which checks for stuff which isn't supposed to happen.
+ *  Be prepared for assertions coming in! */
+//# define HDA_STRICT
+#endif
 
 /**
  * HDA mixer sink definition (ring-3).
@@ -77,10 +80,10 @@ typedef struct HDASTATE
 {
     /** Critical section protecting the HDA state. */
     PDMCRITSECT             CritSect;
+    /** Internal stream states (aligned on 64 byte boundrary). */
+    HDASTREAM               aStreams[HDA_MAX_STREAMS];
     /** The HDA's register set. */
     uint32_t                au32Regs[HDA_NUM_REGS];
-    /** Internal stream states. */
-    HDASTREAM               aStreams[HDA_MAX_STREAMS];
     /** CORB buffer base address. */
     uint64_t                u64CORBBase;
     /** RIRB buffer base address. */
@@ -107,24 +110,29 @@ typedef struct HDASTATE
     uint16_t                cPosAdjustFrames;
     /** Whether the position adjustment is enabled or not. */
     bool                    fPosAdjustEnabled;
+    /** Whether data transfer heuristics are enabled or not.
+     *  This tries to determine the approx. data rate a guest audio driver expects. */
+    bool                    fTransferHeuristicsEnabled;
     /** DMA position buffer enable bit. */
     bool                    fDMAPosition;
     /** Current IRQ level. */
     uint8_t                 u8IRQL;
-#ifdef VBOX_STRICT
-    /** Wall clock (WALCLK) stale count.
-     *  This indicates the number of set wall clock values which did not actually
-     *  move the counter forward (stale). */
-    uint8_t                 u8WalClkStaleCnt;
-#else
-    uint8_t                 bPadding1;
-#endif
     /** The device timer Hz rate. Defaults to HDA_TIMER_HZ_DEFAULT. */
     uint16_t                uTimerHz;
-    /** Padding for alignment. */
-    uint16_t                au16Padding3[3];
-    /** Last updated wall clock (WALCLK) counter. */
-    uint64_t                u64WalClk;
+    /** Number of milliseconds to delay kicking off the AIO when a stream starts.
+     * @sa InitialDelayMs config value.  */
+    uint16_t                msInitialDelay;
+    /** Buffer size (in ms) of the internal input FIFO buffer.
+     *  The actual buffer size in bytes will depend on the actual stream configuration. */
+    uint16_t                cbCircBufInMs;
+    /** Buffer size (in ms) of the internal output FIFO buffer.
+     *  The actual buffer size in bytes will depend on the actual stream configuration. */
+    uint16_t                cbCircBufOutMs;
+    /** The start time of the wall clock (WALCLK), measured on the virtual sync clock. */
+    uint64_t                tsWalClkStart;
+    /** CORB DMA task handle.
+     * We use this when there is stuff we cannot handle in ring-0.  */
+    PDMTASKHANDLE           hCorbDmaTask;
     /** The CORB buffer. */
     uint32_t                au32CorbBuf[HDA_CORB_SIZE];
     /** Pointer to RIRB buffer. */
@@ -132,6 +140,9 @@ typedef struct HDASTATE
 
     /** PCI Region \#0: 16KB of MMIO stuff. */
     IOMMMIOHANDLE           hMmio;
+
+    /** Shared R0/R3 HDA codec to use. */
+    HDACODEC                Codec;
 
 #ifdef VBOX_WITH_STATISTICS
     STAMPROFILE             StatIn;
@@ -195,12 +206,27 @@ typedef struct HDASTATE
      *  This is set to HDASTATE_ALIGNMENT_CHECK_MAGIC. */
     uint64_t                uAlignmentCheckMagic;
 } HDASTATE;
+AssertCompileMemberAlignment(HDASTATE, aStreams, 64);
 /** Pointer to a shared HDA device state.  */
 typedef HDASTATE *PHDASTATE;
 
 /** Value for HDASTATE:uAlignmentCheckMagic. */
 #define HDASTATE_ALIGNMENT_CHECK_MAGIC  UINT64_C(0x1298afb75893e059)
 
+/**
+ * Ring-0 ICH Intel HD audio controller state.
+ */
+typedef struct HDASTATER0
+{
+# if 0 /* Codec is not yet kosher enough for ring-0.  @bugref{9890c64} */
+    /** Pointer to HDA codec to use. */
+    HDACODECR0              Codec;
+# else
+    uint32_t                u32Dummy;
+# endif
+} HDASTATER0;
+/** Pointer to a ring-0 HDA device state.  */
+typedef HDASTATER0 *PHDASTATER0;
 
 /**
  * Ring-3 ICH Intel HD audio controller state.
@@ -211,15 +237,12 @@ typedef struct HDASTATER3
     HDASTREAMR3             aStreams[HDA_MAX_STREAMS];
     /** Mapping table between stream tags and stream states. */
     HDATAG                  aTags[HDA_MAX_TAGS];
-    /** Number of active (running) SDn streams. */
-    uint8_t                 cStreamsActive;
-    uint8_t                 abPadding0[7];
     /** R3 Pointer to the device instance. */
     PPDMDEVINSR3            pDevIns;
     /** The base interface for LUN\#0. */
     PDMIBASE                IBase;
     /** Pointer to HDA codec to use. */
-    R3PTRTYPE(PHDACODEC)    pCodec;
+    R3PTRTYPE(PHDACODECR3)  pCodec;
     /** List of associated LUN drivers (HDADRIVER). */
     RTLISTANCHORR3          lstDrv;
     /** The device' software mixer. */
@@ -244,7 +267,7 @@ typedef struct HDASTATER3
         /** Whether debugging is enabled or not. */
         bool                    fEnabled;
         /** Path where to dump the debug output to.
-         *  Defaults to VBOX_AUDIO_DEBUG_DUMP_PCM_DATA_PATH. */
+         *  Can be NULL, in which the system's temporary directory will be used then. */
         R3PTRTYPE(char *)       pszOutPath;
     } Dbg;
 } HDASTATER3;
@@ -252,5 +275,8 @@ typedef struct HDASTATER3
 typedef HDASTATER3 *PHDASTATER3;
 
 
-#endif /* !VBOX_INCLUDED_SRC_Audio_DevHDA_h */
+/** Pointer to the context specific HDA state (HDASTATER3 or HDASTATER0). */
+typedef CTX_SUFF(PHDASTATE) PHDASTATECC;
+
+#endif /* !VBOX_INCLUDED_SRC_Audio_DevHda_h */
 

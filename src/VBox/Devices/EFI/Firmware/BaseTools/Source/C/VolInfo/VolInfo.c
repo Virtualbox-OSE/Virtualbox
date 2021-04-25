@@ -40,7 +40,7 @@ SPDX-License-Identifier: BSD-2-Clause-Patent
 /*
 
 #ifdef __GNUC__
-#pragma GCC diagnostic ignored "-Wimplicit-fallthrough"
+//#pragma GCC diagnostic ignored "-Wimplicit-fallthrough"
 #endif
 */
 //

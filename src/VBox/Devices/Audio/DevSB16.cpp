@@ -55,13 +55,14 @@
 
 #include <VBox/vmm/pdmdev.h>
 #include <VBox/vmm/pdmaudioifs.h>
+#include <VBox/vmm/pdmaudioinline.h>
 #include <VBox/AssertGuest.h>
 
 #include "VBoxDD.h"
 
 #include "AudioMixBuffer.h"
 #include "AudioMixer.h"
-#include "DrvAudio.h"
+#include "AudioHlp.h"
 
 
 /*********************************************************************************************************************************
@@ -1557,7 +1558,7 @@ static int sb16WriteAudio(PSB16STATE pThis, int nchan, uint32_t dma_pos, uint32_
         RTListForEach(&pThis->lstDrv, pDrv, SB16DRIVER, Node)
         {
             if (   pDrv->Out.pStream
-                && DrvAudioHlpStreamStatusCanWrite(pDrv->pConnector->pfnStreamGetStatus(pDrv->pConnector, pDrv->Out.pStream)))
+                && PDMAudioStrmStatusCanWrite(pDrv->pConnector->pfnStreamGetStatus(pDrv->pConnector, pDrv->Out.pStream)))
             {
                 uint32_t cbWrittenToStream = 0;
                 rc2 = pDrv->pConnector->pfnStreamWrite(pDrv->pConnector, pDrv->Out.pStream, abBuf, cbRead, &cbWrittenToStream);
@@ -1765,9 +1766,9 @@ static DECLCALLBACK(void) sb16TimerIO(PPDMDEVINS pDevIns, PTMTIMER pTimer, void 
 static int sb16CreateDrvStream(PPDMAUDIOSTREAMCFG pCfg, PSB16DRIVER pDrv)
 {
     AssertReturn(pCfg->enmDir == PDMAUDIODIR_OUT, VERR_INVALID_PARAMETER);
-    Assert(DrvAudioHlpStreamCfgIsValid(pCfg));
+    Assert(AudioHlpStreamCfgIsValid(pCfg));
 
-    PPDMAUDIOSTREAMCFG pCfgHost = DrvAudioHlpStreamCfgDup(pCfg);
+    PPDMAUDIOSTREAMCFG pCfgHost = PDMAudioStrmCfgDup(pCfg);
     if (!pCfgHost)
         return VERR_NO_MEMORY;
 
@@ -1785,7 +1786,7 @@ static int sb16CreateDrvStream(PPDMAUDIOSTREAMCFG pCfg, PSB16DRIVER pDrv)
         LogFlowFunc(("LUN#%RU8: Created output \"%s\", rc=%Rrc\n", pDrv->uLUN, pCfg->szName, rc));
     }
 
-    DrvAudioHlpStreamCfgFree(pCfgHost);
+    PDMAudioStrmCfgFree(pCfgHost);
 
     return rc;
 }
@@ -1838,7 +1839,7 @@ static int sb16CheckAndReOpenOut(PPDMDEVINS pDevIns, PSB16STATE pThis)
         Cfg.Props.fSigned   = RT_BOOL(pThis->fmt_signed);
         Cfg.Props.cShift    = PDMAUDIOPCMPROPS_MAKE_SHIFT_PARMS(Cfg.Props.cbSample, Cfg.Props.cChannels);
 
-        if (!DrvAudioHlpPCMPropsAreEqual(&Cfg.Props, &pThis->Out.Cfg.Props))
+        if (!PDMAudioStrmCfgMatchesProps(&Cfg, &pThis->Out.Cfg.Props))
         {
             Cfg.enmDir      = PDMAUDIODIR_OUT;
             Cfg.u.enmDst    = PDMAUDIOPLAYBACKDST_FRONT;
@@ -1865,10 +1866,10 @@ static int sb16OpenOut(PPDMDEVINS pDevIns, PSB16STATE pThis, PPDMAUDIOSTREAMCFG 
     AssertPtr(pThis);
     AssertPtr(pCfg);
 
-    if (!DrvAudioHlpStreamCfgIsValid(pCfg))
+    if (!AudioHlpStreamCfgIsValid(pCfg))
         return VERR_INVALID_PARAMETER;
 
-    int rc = DrvAudioHlpStreamCfgCopy(&pThis->Out.Cfg, pCfg);
+    int rc = PDMAudioStrmCfgCopy(&pThis->Out.Cfg, pCfg);
     if (RT_SUCCESS(rc))
     {
         /* Set scheduling hint (if available). */

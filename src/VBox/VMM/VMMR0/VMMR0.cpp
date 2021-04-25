@@ -644,6 +644,8 @@ static int vmmR0DoHaltInterrupt(PVMCPUCC pVCpu, unsigned uMWait, CPUMINTERRUPTIB
      */
     else if (VMCPU_FF_IS_SET(pVCpu, VMCPU_FF_INTERRUPT_SMI))
     {
+        Log12(("vmmR0DoHaltInterrupt: CPU%d failed #3\n", pVCpu->idCpu));
+        STAM_REL_COUNTER_INC(&pVCpu->vmm.s.StatR0HaltToR3);
         return VINF_EM_HALT;
     }
     /*
@@ -654,6 +656,8 @@ static int vmmR0DoHaltInterrupt(PVMCPUCC pVCpu, unsigned uMWait, CPUMINTERRUPTIB
         if (enmInterruptibility < CPUMINTERRUPTIBILITY_NMI_INHIBIT)
         {
             /** @todo later. */
+            Log12(("vmmR0DoHaltInterrupt: CPU%d failed #2 (uMWait=%u enmInt=%d)\n", pVCpu->idCpu, uMWait, enmInterruptibility));
+            STAM_REL_COUNTER_INC(&pVCpu->vmm.s.StatR0HaltToR3);
             return VINF_EM_HALT;
         }
     }
@@ -667,6 +671,8 @@ static int vmmR0DoHaltInterrupt(PVMCPUCC pVCpu, unsigned uMWait, CPUMINTERRUPTIB
             /** @todo NSTVMX: NSTSVM: Remember, we might have to check and perform VM-exits
              *        here before injecting the virtual interrupt. See emR3ForcedActions
              *        for details. */
+            Log12(("vmmR0DoHaltInterrupt: CPU%d failed #1 (uMWait=%u enmInt=%d)\n", pVCpu->idCpu, uMWait, enmInterruptibility));
+            STAM_REL_COUNTER_INC(&pVCpu->vmm.s.StatR0HaltToR3);
             return VINF_EM_HALT;
         }
     }
@@ -674,14 +680,18 @@ static int vmmR0DoHaltInterrupt(PVMCPUCC pVCpu, unsigned uMWait, CPUMINTERRUPTIB
     if (VMCPU_FF_TEST_AND_CLEAR(pVCpu, VMCPU_FF_UNHALT))
     {
         STAM_REL_COUNTER_INC(&pVCpu->vmm.s.StatR0HaltExec);
+        Log11(("vmmR0DoHaltInterrupt: CPU%d success VINF_SUCCESS (UNHALT)\n", pVCpu->idCpu));
         return VINF_SUCCESS;
     }
     if (uMWait > 1)
     {
         STAM_REL_COUNTER_INC(&pVCpu->vmm.s.StatR0HaltExec);
+        Log11(("vmmR0DoHaltInterrupt: CPU%d success VINF_SUCCESS (uMWait=%u > 1)\n", pVCpu->idCpu, uMWait));
         return VINF_SUCCESS;
     }
 
+    Log12(("vmmR0DoHaltInterrupt: CPU%d failed #0 (uMWait=%u enmInt=%d)\n", pVCpu->idCpu, uMWait, enmInterruptibility));
+    STAM_REL_COUNTER_INC(&pVCpu->vmm.s.StatR0HaltToR3);
     return VINF_EM_HALT;
 }
 
@@ -808,12 +818,14 @@ static int vmmR0DoHalt(PGVM pGVM, PGVMCPU pGVCpu)
                             if (VM_FF_IS_ANY_SET(pGVM, fVmFFs))
                             {
                                 STAM_REL_COUNTER_INC(&pGVCpu->vmm.s.StatR0HaltToR3FromSpin);
+                                STAM_REL_COUNTER_INC(&pGVCpu->vmm.s.StatR0HaltToR3);
                                 return VINF_EM_HALT;
                             }
                             ASMNopPause();
                             if (VMCPU_FF_IS_ANY_SET(pGVCpu, fCpuFFs))
                             {
                                 STAM_REL_COUNTER_INC(&pGVCpu->vmm.s.StatR0HaltToR3FromSpin);
+                                STAM_REL_COUNTER_INC(&pGVCpu->vmm.s.StatR0HaltToR3);
                                 return VINF_EM_HALT;
                             }
                             ASMNopPause();
@@ -826,47 +838,113 @@ static int vmmR0DoHalt(PGVM pGVM, PGVMCPU pGVCpu)
                         }
                     }
 
-                    /* Block.  We have to set the state to VMCPUSTATE_STARTED_HALTED here so ring-3
-                       knows when to notify us (cannot access VMINTUSERPERVMCPU::fWait from here). */
-                    VMCPU_CMPXCHG_STATE(pGVCpu, VMCPUSTATE_STARTED_HALTED, VMCPUSTATE_STARTED);
-                    uint64_t const u64StartSchedHalt   = RTTimeNanoTS();
-                    int rc = GVMMR0SchedHalt(pGVM, pGVCpu, u64GipTime);
-                    uint64_t const u64EndSchedHalt     = RTTimeNanoTS();
-                    uint64_t const cNsElapsedSchedHalt = u64EndSchedHalt - u64StartSchedHalt;
-                    VMCPU_CMPXCHG_STATE(pGVCpu, VMCPUSTATE_STARTED, VMCPUSTATE_STARTED_HALTED);
-                    STAM_REL_PROFILE_ADD_PERIOD(&pGVCpu->vmm.s.StatR0HaltBlock, cNsElapsedSchedHalt);
-                    if (   rc == VINF_SUCCESS
-                        || rc == VERR_INTERRUPTED)
-
+                    /*
+                     * We have to set the state to VMCPUSTATE_STARTED_HALTED here so ring-3
+                     * knows when to notify us (cannot access VMINTUSERPERVMCPU::fWait from here).
+                     * After changing the state we must recheck the force flags of course.
+                     */
+                    if (VMCPU_CMPXCHG_STATE(pGVCpu, VMCPUSTATE_STARTED_HALTED, VMCPUSTATE_STARTED))
                     {
-                        /* Keep some stats like ring-3 does. */
-                        int64_t const cNsOverslept = u64EndSchedHalt - u64GipTime;
-                        if (cNsOverslept > 50000)
-                            STAM_REL_PROFILE_ADD_PERIOD(&pGVCpu->vmm.s.StatR0HaltBlockOverslept, cNsOverslept);
-                        else if (cNsOverslept < -50000)
-                            STAM_REL_PROFILE_ADD_PERIOD(&pGVCpu->vmm.s.StatR0HaltBlockInsomnia,  cNsElapsedSchedHalt);
-                        else
-                            STAM_REL_PROFILE_ADD_PERIOD(&pGVCpu->vmm.s.StatR0HaltBlockOnTime,    cNsElapsedSchedHalt);
-
-                        /*
-                         * Recheck whether we can resume execution or have to go to ring-3.
-                         */
                         if (   !VM_FF_IS_ANY_SET(pGVM, fVmFFs)
                             && !VMCPU_FF_IS_ANY_SET(pGVCpu, fCpuFFs))
                         {
                             if (VMCPU_FF_TEST_AND_CLEAR(pGVCpu, VMCPU_FF_UPDATE_APIC))
                                 APICUpdatePendingInterrupts(pGVCpu);
+
                             if (VMCPU_FF_IS_ANY_SET(pGVCpu, fIntMask))
                             {
-                                STAM_REL_COUNTER_INC(&pGVCpu->vmm.s.StatR0HaltExecFromBlock);
+                                VMCPU_CMPXCHG_STATE(pGVCpu, VMCPUSTATE_STARTED, VMCPUSTATE_STARTED_HALTED);
                                 return vmmR0DoHaltInterrupt(pGVCpu, uMWait, enmInterruptibility);
                             }
+
+                            /* Okay, block! */
+                            uint64_t const u64StartSchedHalt   = RTTimeNanoTS();
+                            int rc = GVMMR0SchedHalt(pGVM, pGVCpu, u64GipTime);
+                            uint64_t const u64EndSchedHalt     = RTTimeNanoTS();
+                            uint64_t const cNsElapsedSchedHalt = u64EndSchedHalt - u64StartSchedHalt;
+                            Log10(("vmmR0DoHalt: CPU%d: halted %llu ns\n", pGVCpu->idCpu, cNsElapsedSchedHalt));
+
+                            VMCPU_CMPXCHG_STATE(pGVCpu, VMCPUSTATE_STARTED, VMCPUSTATE_STARTED_HALTED);
+                            STAM_REL_PROFILE_ADD_PERIOD(&pGVCpu->vmm.s.StatR0HaltBlock, cNsElapsedSchedHalt);
+                            if (   rc == VINF_SUCCESS
+                                || rc == VERR_INTERRUPTED)
+                            {
+                                /* Keep some stats like ring-3 does. */
+                                int64_t const cNsOverslept = u64EndSchedHalt - u64GipTime;
+                                if (cNsOverslept > 50000)
+                                    STAM_REL_PROFILE_ADD_PERIOD(&pGVCpu->vmm.s.StatR0HaltBlockOverslept, cNsOverslept);
+                                else if (cNsOverslept < -50000)
+                                    STAM_REL_PROFILE_ADD_PERIOD(&pGVCpu->vmm.s.StatR0HaltBlockInsomnia,  cNsElapsedSchedHalt);
+                                else
+                                    STAM_REL_PROFILE_ADD_PERIOD(&pGVCpu->vmm.s.StatR0HaltBlockOnTime,    cNsElapsedSchedHalt);
+
+                                /*
+                                 * Recheck whether we can resume execution or have to go to ring-3.
+                                 */
+                                if (   !VM_FF_IS_ANY_SET(pGVM, fVmFFs)
+                                    && !VMCPU_FF_IS_ANY_SET(pGVCpu, fCpuFFs))
+                                {
+                                    if (VMCPU_FF_TEST_AND_CLEAR(pGVCpu, VMCPU_FF_UPDATE_APIC))
+                                        APICUpdatePendingInterrupts(pGVCpu);
+                                    if (VMCPU_FF_IS_ANY_SET(pGVCpu, fIntMask))
+                                    {
+                                        STAM_REL_COUNTER_INC(&pGVCpu->vmm.s.StatR0HaltExecFromBlock);
+                                        return vmmR0DoHaltInterrupt(pGVCpu, uMWait, enmInterruptibility);
+                                    }
+                                    STAM_REL_COUNTER_INC(&pGVCpu->vmm.s.StatR0HaltToR3PostNoInt);
+                                    Log12(("vmmR0DoHalt: CPU%d post #2 - No pending interrupt\n", pGVCpu->idCpu));
+                                }
+                                else
+                                {
+                                    STAM_REL_COUNTER_INC(&pGVCpu->vmm.s.StatR0HaltToR3PostPendingFF);
+                                    Log12(("vmmR0DoHalt: CPU%d post #1 - Pending FF\n", pGVCpu->idCpu));
+                                }
+                            }
+                            else
+                            {
+                                STAM_REL_COUNTER_INC(&pGVCpu->vmm.s.StatR0HaltToR3Other);
+                                Log12(("vmmR0DoHalt: CPU%d GVMMR0SchedHalt failed: %Rrc\n", pGVCpu->idCpu, rc));
+                            }
+                        }
+                        else
+                        {
+                            VMCPU_CMPXCHG_STATE(pGVCpu, VMCPUSTATE_STARTED, VMCPUSTATE_STARTED_HALTED);
+                            STAM_REL_COUNTER_INC(&pGVCpu->vmm.s.StatR0HaltToR3PendingFF);
+                            Log12(("vmmR0DoHalt: CPU%d failed #5 - Pending FF\n", pGVCpu->idCpu));
                         }
                     }
+                    else
+                    {
+                        STAM_REL_COUNTER_INC(&pGVCpu->vmm.s.StatR0HaltToR3Other);
+                        Log12(("vmmR0DoHalt: CPU%d failed #4 - enmState=%d\n", pGVCpu->idCpu, VMCPU_GET_STATE(pGVCpu)));
+                    }
+                }
+                else
+                {
+                    STAM_REL_COUNTER_INC(&pGVCpu->vmm.s.StatR0HaltToR3SmallDelta);
+                    Log12(("vmmR0DoHalt: CPU%d failed #3 - delta too small: %RU64\n", pGVCpu->idCpu, u64Delta));
                 }
             }
+            else
+            {
+                STAM_REL_COUNTER_INC(&pGVCpu->vmm.s.StatR0HaltToR3PendingFF);
+                Log12(("vmmR0DoHalt: CPU%d failed #2 - Pending FF\n", pGVCpu->idCpu));
+            }
+        }
+        else
+        {
+            STAM_REL_COUNTER_INC(&pGVCpu->vmm.s.StatR0HaltToR3PendingFF);
+            Log12(("vmmR0DoHalt: CPU%d failed #1 - Pending FF\n", pGVCpu->idCpu));
         }
     }
+    else
+    {
+        STAM_REL_COUNTER_INC(&pGVCpu->vmm.s.StatR0HaltToR3Other);
+        Log12(("vmmR0DoHalt: CPU%d failed #0 - fMayHaltInRing0=%d TRPMHasTrap=%d enmInt=%d uMWait=%u\n",
+               pGVCpu->idCpu, pGVCpu->vmm.s.fMayHaltInRing0, TRPMHasTrap(pGVCpu), enmInterruptibility, uMWait));
+    }
+
+    STAM_REL_COUNTER_INC(&pGVCpu->vmm.s.StatR0HaltToR3);
     return VINF_EM_HALT;
 }
 
@@ -1453,7 +1531,6 @@ VMMR0DECL(void) VMMR0EntryFast(PGVM pGVM, PVMCC pVMIgnored, VMCPUID idCpu, VMMR0
 #ifdef VBOX_WITH_STATISTICS
                     vmmR0RecordRC(pGVM, pGVCpu, rc);
 #endif
-#if 1
                     /*
                      * If this is a halt.
                      */
@@ -1469,7 +1546,6 @@ VMMR0DECL(void) VMMR0EntryFast(PGVM pGVM, PVMCC pVMIgnored, VMCPUID idCpu, VMMR0
                         }
                         pGVCpu->vmm.s.cR0HaltsToRing3++;
                     }
-#endif
                 }
                 /*
                  * Invalid CPU set index or TSC delta in need of measuring.

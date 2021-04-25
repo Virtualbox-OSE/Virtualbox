@@ -16,7 +16,7 @@
 <refentry id="vboxmanage-cloud" lang="en">
 
   <refentryinfo>
-    <pubdate>$Date: 2020-10-08 13:45:33 +0200 (Thu, 08 Oct 2020) $</pubdate>
+    <pubdate>$Date: 2021-03-01 11:20:37 +0100 (Mon, 01 Mar 2021) $</pubdate>
     <title>VBoxManage cloud</title>
   </refentryinfo>
 
@@ -72,6 +72,7 @@
        <arg rep="norepeat">--privateip=<replaceable>IP address</replaceable></arg>
        <arg rep="repeat">--public-ssh-key=<replaceable>key string</replaceable></arg>
        <arg rep="norepeat">--launch-mode=<replaceable>NATIVE/EMULATED/PARAVIRTUALIZED</replaceable></arg>
+       <arg rep="norepeat">--cloud-init-script-path=<replaceable>path to a script</replaceable></arg>
      </cmdsynopsis>
      <cmdsynopsis id="synopsis-vboxmanage-cloudinstance-info" sepchar=" ">
        <command moreinfo="none">VBoxManage cloud</command>
@@ -332,6 +333,9 @@
         </varlistentry>
         <varlistentry>
           <term><option>--launch-mode</option></term><listitem><para>The most known values here may be EMULATED, NATIVE, PARAVIRTUALIZED. </para></listitem>
+        </varlistentry>
+        <varlistentry>
+          <term><option>--cloud-init-script-path</option></term><listitem><para>Absolute path to the user cloud-init script.</para></listitem>
         </varlistentry>
       </variablelist>
     </refsect2>

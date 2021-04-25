@@ -2675,6 +2675,12 @@ VBOXOSTYPE Unattended::i_getGuestOsType() const
     return meGuestOsType;
 }
 
+Utf8Str const & Unattended::i_getDetectedOSVersion()
+{
+    Assert(isReadLockedOnCurrentThread());
+    return mStrDetectedOSVersion;
+}
+
 HRESULT Unattended::i_attachImage(UnattendedInstallationDisk const *pImage, ComPtr<IMachine> const &rPtrSessionMachine,
                                   AutoMultiWriteLock2 &rLock)
 {

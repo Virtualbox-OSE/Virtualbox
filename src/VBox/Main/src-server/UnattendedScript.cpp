@@ -107,6 +107,11 @@ HRESULT UnattendedScriptTemplate::saveToString(Utf8Str &rStrDst)
             while (   offPlaceholder + cchPlaceholder < cchTemplate
                    && (ch = pszPlaceholder[cchPlaceholder]) != '\0'
                    && (   ch == '_'
+                       || ch == '['
+                       || ch == ']'
+                       || ch == '.'
+                       || ch == '>'
+                       || ch == '<'
                        || RT_C_IS_UPPER(ch)
                        || RT_C_IS_DIGIT(ch)) )
                 cchPlaceholder++;
@@ -378,6 +383,20 @@ HRESULT UnattendedScriptTemplate::getUnescapedReplacement(const char *pachPlaceh
         rValue = mpUnattended->i_isGuestOs64Bit() ? "x86_64" : "i486";
     else if (IS_PLACEHOLDER_MATCH("OS_ARCH6"))
         rValue = mpUnattended->i_isGuestOs64Bit() ? "x86_64" : "i686";
+    else if (IS_PLACEHOLDER_MATCH("GUEST_OS_VERSION"))
+        rValue = mpUnattended->i_getDetectedOSVersion();
+    else if (IS_PLACEHOLDER_MATCH("GUEST_OS_MAJOR_VERSION"))
+    {
+        Utf8Str strOsVer(mpUnattended->i_getDetectedOSVersion());
+        RTCList<RTCString> partList = strOsVer.split(".");
+        if (partList.size() < 1)
+        {
+            rValue.setNull();
+            return mpSetError->setErrorBoth(E_FAIL, VERR_NOT_FOUND, mpSetError->tr("Unknown guest OS major version '%s'"),
+                                            partList.at(0).c_str());
+        }
+        rValue = partList.at(0);
+    }
     else if (IS_PLACEHOLDER_MATCH("TIME_ZONE_UX"))
         rValue = mpUnattended->i_getTimeZoneInfo()
                ? mpUnattended->i_getTimeZoneInfo()->pszUnixName : mpUnattended->i_getTimeZone();
@@ -434,6 +453,8 @@ HRESULT UnattendedScriptTemplate::getConditional(const char *pachPlaceholder, si
 #define IS_PLACEHOLDER_MATCH(a_szMatch) \
         (   cchPlaceholder == sizeof("@@VBOX_COND_" a_szMatch "@@") - 1U \
          && memcmp(pachPlaceholder, "@@VBOX_COND_" a_szMatch "@@", sizeof("@@VBOX_COND_" a_szMatch "@@") - 1U) == 0)
+#define IS_PLACEHOLDER_PARTIALLY_MATCH(a_szMatch) \
+ 		(memcmp(pachPlaceholder, "@@VBOX_COND_" a_szMatch, sizeof("@@VBOX_COND_" a_szMatch) - 1U) == 0)
 
     /* Install guest additions: */
     if (IS_PLACEHOLDER_MATCH("IS_INSTALLING_ADDITIONS"))
@@ -472,6 +493,38 @@ HRESULT UnattendedScriptTemplate::getConditional(const char *pachPlaceholder, si
         *pfOutputting = !mpUnattended->i_isRtcUsingUtc();
     else if (IS_PLACEHOLDER_MATCH("HAS_PROXY"))
         *pfOutputting = mpUnattended->i_getProxy().isNotEmpty();
+    else if (IS_PLACEHOLDER_PARTIALLY_MATCH("GUEST_VERSION"))
+    {
+        //parse the placeholder and extract the OS version from there
+        RTCString strPlaceHolder(pachPlaceholder);
+        size_t startPos = sizeof("@@VBOX_COND_GUEST_VERSION") - 1;//-1 is for '\n'
+        size_t endPos = strPlaceHolder.find("@@", startPos + 2);
+        //next part should look like [>8.0.0] for example where:
+        // - "[,]" is just the brackets to wrap up the condition;
+        // - ">" is "greater". Also possible comparison is "<";
+        // - 8.0.0 is required guest OS version.
+        //The end of placeholder is "@@" like for others.
+
+        if ( strPlaceHolder[endPos] == '@'
+             && strPlaceHolder[endPos+1] == '@' )
+        {
+            if ( strPlaceHolder[startPos++] == '[' && strPlaceHolder[--endPos] == ']' )
+            {
+                char chComp = strPlaceHolder[startPos++];
+                RTCString strRequiredOSVersion = strPlaceHolder.substr(startPos, endPos - startPos);
+                RTCString strDetectedOSVersion = mpUnattended->i_getDetectedOSVersion();
+                int res = RTStrVersionCompare(strDetectedOSVersion.c_str(), strRequiredOSVersion.c_str());
+                if ( res >= 0 && chComp == '>' )
+                        *pfOutputting = true;
+                else if ( res < 0 && chComp == '<' )
+                        *pfOutputting = true;
+                else
+                    *pfOutputting = false;
+            }
+        }
+        else
+            *pfOutputting = false;//initially is set to "false"
+    }
     else
         return mpSetError->setErrorBoth(E_FAIL, VERR_NOT_FOUND, mpSetError->tr("Unknown conditional placeholder '%.*s'"),
                                         cchPlaceholder, pachPlaceholder);

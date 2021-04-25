@@ -185,6 +185,7 @@ va_dcl
 #endif
     assert(k <= sizeof(f)/sizeof(f[0]));    /* MR20 G. Hobbelt */
 	text[0] = '\0';
+	memset(f, '\0', sizeof(f));
 	for (i=1; i<=k; i++)	/* collect all lookahead sets */
 	{
 		f[i-1] = va_arg(ap, SetWordType *);

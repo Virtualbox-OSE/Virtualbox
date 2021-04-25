@@ -49,6 +49,8 @@ typedef struct AUDIOMIXER
     RTLISTANCHOR            lstSinks;
     /** Number of used audio sinks. */
     uint8_t                 cSinks;
+    /** Mixer flags. See AUDMIXER_FLAGS_XXX. */
+    uint32_t                fFlags;
 } AUDIOMIXER;
 /** Pointer to an audio mixer instance. */
 typedef AUDIOMIXER *PAUDIOMIXER;
@@ -193,6 +195,10 @@ typedef struct AUDMIXSINK
     /** This sink's mixing buffer, acting as
      * a parent buffer for all streams this sink owns. */
     PDMAUDIOMIXBUF          MixBuf;
+    /** Scratch buffer for multiplexing / mixing. Might be NULL if not needed. */
+    uint8_t                *pabScratchBuf;
+    /** Size (in bytes) of pabScratchBuf. Might be 0 if not needed. */
+    size_t                  cbScratchBuf;
     /** Union for input/output specifics. */
     union
     {
@@ -219,12 +225,10 @@ typedef struct AUDMIXSINK
     uint64_t                tsLastUpdatedMs;
     /** Last read (recording) / written (playback) timestamp (in ns). */
     uint64_t                tsLastReadWrittenNs;
-#ifdef VBOX_AUDIO_MIXER_DEBUG
     struct
     {
         PPDMAUDIOFILE       pFile;
     } Dbg;
-#endif
 } AUDMIXSINK;
 
 /**
@@ -245,7 +249,15 @@ typedef enum AUDMIXOP
 /** No flags specified. */
 #define AUDMIXSTRMCTL_F_NONE            0
 
-int AudioMixerCreate(const char *pszName, uint32_t uFlags, PAUDIOMIXER *ppMixer);
+/** No mixer flags specified. */
+#define AUDMIXER_FLAGS_NONE             0
+/** Debug mode enabled.
+ *  This writes .WAV file to the host, usually to the temporary directory. */
+#define AUDMIXER_FLAGS_DEBUG            RT_BIT(0)
+/** Validation mask. */
+#define AUDMIXER_FLAGS_VALID_MASK       UINT32_C(0x00000001)
+
+int AudioMixerCreate(const char *pszName, uint32_t fFlags, PAUDIOMIXER *ppMixer);
 int AudioMixerCreateSink(PAUDIOMIXER pMixer, const char *pszName, AUDMIXSINKDIR enmDir, PAUDMIXSINK *ppSink);
 void AudioMixerDestroy(PAUDIOMIXER pMixer);
 void AudioMixerInvalidate(PAUDIOMIXER pMixer);

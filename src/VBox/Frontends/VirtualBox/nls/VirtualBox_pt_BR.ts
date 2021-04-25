@@ -21852,7 +21852,7 @@ utilizando o diálogo de Configurações da MV.&lt;/p&gt;</translation>
     </message>
     <message>
         <source>Keep &amp;Disk Names</source>
-        <translation>Manger Nomes dos &amp;Discos</translation>
+        <translation>Manter Nomes dos &amp;Discos</translation>
     </message>
     <message>
         <source>Don&apos;t change hardware UUIDs during cloning.</source>
@@ -21860,7 +21860,7 @@ utilizando o diálogo de Configurações da MV.&lt;/p&gt;</translation>
     </message>
     <message>
         <source>Keep &amp;Hardware UUIDs</source>
-        <translation>Manger UUIDs do &amp;Hardware</translation>
+        <translation>Manter UUIDs do &amp;Hardware</translation>
     </message>
     <message>
         <source>New machine &amp;name and path</source>

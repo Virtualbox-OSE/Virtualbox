@@ -35,6 +35,104 @@ technical terms if no non-technical ones are clear enough.
                            So, we use chapter and xpointer="xpointer(/chapter/)" with xi:include. -->
 
   <sect1>
+    <title>Version 6.1.20 (2021-04-20)</title>
+
+    <para>This is a maintenance release. The following items were fixed
+      and/or added:</para>
+
+    <itemizedlist>
+      <listitem>
+         <para>VMM: Fixed extremely poor VM performance depending on the timing of various actions (regression in 6.1.0)</para>
+      </listitem>
+
+      <listitem>
+         <para>VMM: Fixed guest OS hanging under certain circumstances when Hyper-V is present (bug #20141)</para>
+      </listitem>
+
+      <listitem>
+         <para>VMM: Fixed Guru Meditation error when using a nested hypervisor under certain circumstances (bug #20175)</para>
+      </listitem>
+
+      <listitem>
+         <para>VMM: Fixed a SMAP related host panic affecting Solaris 11.4 systems with Intel Haswell CPUs or later (bug #16068)</para>
+      </listitem>
+
+      <listitem>
+         <para>OCI: Add cloud-init support for export to OCI and for OCI instance creation</para>
+      </listitem>
+
+      <listitem>
+         <para>GUI: Fixed "Delete all files" leaving behind Logs/VBoxUI.log (bug #20235)</para>
+      </listitem>
+
+      <listitem>
+         <para>Audio: Multiple fixes and enhancements</para>
+      </listitem>
+
+      <listitem>
+         <para>Audio: Fixed detection of duplex audio devices on macOS (5.0 regression; bug #20171)</para>
+      </listitem>
+
+      <listitem>
+         <para>Network: Fixed link status reporting for "not attached" adapters</para>
+      </listitem>
+
+      <listitem>
+         <para>Network: Fixed connectivity issues with e1000 in OS/2 guests (6.1.18 regression; bug #20148)</para>
+      </listitem>
+
+      <listitem>
+         <para>Network: Fixed VxWorks e1000 driver compatibility issue (bug #20182)</para>
+      </listitem>
+
+      <listitem>
+         <para>Network: Fixed GUI checks for port forwarding rules rejecting IPv6 with "Nat Network" (bug #14847)</para>
+      </listitem>
+
+      <listitem>
+         <para>DHCP: Don't crash in the presence of fixed address assignments (bug #20128)</para>
+      </listitem>
+
+      <listitem>
+         <para>Serial: Fixed possible VM hang when using the a serial port in disconnected mode (bug #19854)</para>
+      </listitem>
+
+      <listitem>
+         <para>Webcam: Fixed interoperability with v4l2loopback and fixed a crash under certain circumstances (bug #20176)</para>
+      </listitem>
+
+      <listitem>
+         <para>NVMe: Fixed sporadic Windows VM hang or reboot on high CPU load</para>
+      </listitem>
+
+      <listitem>
+        <para>VBoxManage: Allow changing network adapter attachment of a saved VM with "modifyvm"</para>
+      </listitem>
+
+      <listitem>
+         <para>vboximg-mount: Fix for argument processing to honor the '--root' option (6.0 regression; bug #20073)</para>
+      </listitem>
+
+      <listitem>
+         <para>Linux host and guest: Support kernel versions 5.11 (bug #20198) and 5.12</para>
+      </listitem>
+
+      <listitem>
+         <para>Linux host: Maximum MTU size increased to 16110 for host-only adapters on Linux kernels 4.10+ (bug #19122)</para>
+      </listitem>
+
+      <listitem>
+         <para>Linux Guest Additions: Fix vboxvideo module compilation for kernel version 5.10.x</para>
+      </listitem>
+
+      <listitem>
+         <para>Linux Guest Additions: Fixed kernel module build for RHEL 8.4 beta and CentOS Stream (bug #20289)</para>
+      </listitem>
+
+    </itemizedlist>
+  </sect1>
+
+  <sect1>
     <title>Version 6.1.18 (2021-01-19)</title>
 
     <para>This is a maintenance release. The following items were fixed
@@ -94,7 +192,7 @@ technical terms if no non-technical ones are clear enough.
 
       <listitem>
           <para>Guest Additions: Fixed a build failure affecting Linux
-	    kernels 3.2.0 through 3.2.50 (bug #20006)</para>
+           kernels 3.2.0 through 3.2.50 (bug #20006)</para>
       </listitem>
 
       <listitem>

@@ -264,7 +264,10 @@ extern void vbsf_update_inode(struct inode *pInode, struct vbsf_inode_info *pIno
 extern int  vbsf_inode_revalidate_worker(struct dentry *dentry, bool fForced, bool fInodeLocked);
 extern int  vbsf_inode_revalidate_with_handle(struct dentry *dentry, SHFLHANDLE hHostFile, bool fForced, bool fInodeLocked);
 #if RTLNX_VER_MIN(2,5,18)
-# if RTLNX_VER_MIN(4,11,0)
+# if RTLNX_VER_MIN(5,12,0)
+extern int  vbsf_inode_getattr(struct user_namespace *ns, const struct path *path,
+    struct kstat *kstat, u32 request_mask, unsigned int query_flags);
+# elif RTLNX_VER_MIN(4,11,0)
 extern int  vbsf_inode_getattr(const struct path *path, struct kstat *kstat, u32 request_mask, unsigned int query_flags);
 # else
 extern int  vbsf_inode_getattr(struct vfsmount *mnt, struct dentry *dentry, struct kstat *kstat);
@@ -272,7 +275,11 @@ extern int  vbsf_inode_getattr(struct vfsmount *mnt, struct dentry *dentry, stru
 #else  /* < 2.5.44 */
 extern int  vbsf_inode_revalidate(struct dentry *dentry);
 #endif /* < 2.5.44 */
+#if RTLNX_VER_MIN(5,12,0)
+extern int  vbsf_inode_setattr(struct user_namespace *ns, struct dentry *dentry, struct iattr *iattr);
+#else
 extern int  vbsf_inode_setattr(struct dentry *dentry, struct iattr *iattr);
+#endif
 
 
 extern void              vbsf_handle_drop_chain(struct vbsf_inode_info *pInodeInfo);
@@ -425,6 +432,17 @@ DECLINLINE(void) vbsf_dentry_chain_increase_parent_ttl(struct dentry *pDirEntry)
 #else
 # define VBSF_GET_F_DENTRY(f)   (f->f_dentry)
 #endif
+
+/**
+ * Macro for checking if the 'data' argument passed in via mount(2) was supplied
+ * by the mount.vboxsf command line utility as a page of data containing the
+ * vbsf_mount_info_new structure.
+ */
+#define VBSF_IS_MOUNT_VBOXSF_DATA(data)        \
+    (((struct vbsf_mount_info_new *)data)->nullchar == '\0' && \
+    ((struct vbsf_mount_info_new *)data)->signature[0] == VBSF_MOUNT_SIGNATURE_BYTE_0 && \
+    ((struct vbsf_mount_info_new *)data)->signature[1] == VBSF_MOUNT_SIGNATURE_BYTE_1 && \
+    ((struct vbsf_mount_info_new *)data)->signature[2] == VBSF_MOUNT_SIGNATURE_BYTE_2)
 
 extern int  vbsf_stat(const char *caller, struct vbsf_super_info *pSuperInfo, SHFLSTRING * path, PSHFLFSOBJINFO result,
                       int ok_to_fail);

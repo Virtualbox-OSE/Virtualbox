@@ -1,6 +1,9 @@
-/* $Id: DevHDACommon.h $ */
+/* $Id: DevHdaCommon.h $ */
 /** @file
- * DevHDACommon.h - Shared HDA device defines / functions.
+ * Intel HD Audio Controller Emulation - Common stuff.
+ *
+ * @todo r=bird: Wtf is this?   Do we have some other HDA implementations
+ *               that I'm not aware of that shares this code?
  */
 
 /*
@@ -15,8 +18,8 @@
  * hope that it will be useful, but WITHOUT ANY WARRANTY of any kind.
  */
 
-#ifndef VBOX_INCLUDED_SRC_Audio_DevHDACommon_h
-#define VBOX_INCLUDED_SRC_Audio_DevHDACommon_h
+#ifndef VBOX_INCLUDED_SRC_Audio_DevHdaCommon_h
+#define VBOX_INCLUDED_SRC_Audio_DevHdaCommon_h
 #ifndef RT_WITHOUT_PRAGMA_ONCE
 # pragma once
 #endif
@@ -102,17 +105,13 @@ AssertCompile(HDA_MAX_SDI <= HDA_MAX_SDO);
  * Formula: size - 1
  * Other values not listed are not supported.
  */
-/** Maximum FIFO size (in bytes). */
-#define HDA_FIFO_MAX                256
 
 /** Default timer frequency (in Hz).
  *
- * Lowering this value can ask for trouble, as backends then can run
- * into data underruns.
- *
- * Note: For handling surround setups (e.g. 5.1 speaker setups) we need
- *       a higher Hz rate, as the device emulation otherwise will come into
- *       timing trouble, making the output (DMA reads) crackling. */
+ *  20 Hz now seems enough for most setups, even with load on the guest.
+ *  Raising the rate will produce more I/O load on the guest and therefore
+ *  also will affect the performance.
+ */
 #define HDA_TIMER_HZ_DEFAULT        100
 
 /** Default position adjustment (in audio samples).
@@ -548,23 +547,6 @@ typedef struct HDAMIXERSINK *PHDAMIXERSINK;
 
 
 /**
- * Internal state of a Buffer Descriptor List Entry (BDLE),
- * needed to keep track of the data needed for the actual device
- * emulation.
- */
-typedef struct HDABDLESTATE
-{
-    /** Own index within the BDL (Buffer Descriptor List). */
-    uint32_t     u32BDLIndex;
-    /** Number of bytes below the stream's FIFO watermark (SDFIFOW).
-     *  Used to check if we need fill up the FIFO again. */
-    uint32_t     cbBelowFIFOW;
-    /** Current offset in DMA buffer (in bytes).*/
-    uint32_t     u32BufOff;
-    uint32_t     Padding;
-} HDABDLESTATE, *PHDABDLESTATE;
-
-/**
  * BDL description structure.
  * Do not touch this, as this must match to the HDA specs.
  */
@@ -583,20 +565,6 @@ typedef struct HDABDLEDESC
 } HDABDLEDESC, *PHDABDLEDESC;
 AssertCompileSize(HDABDLEDESC, 16); /* Always 16 byte. Also must be aligned on 128-byte boundary. */
 
-/**
- * Buffer Descriptor List Entry (BDLE) (3.6.3).
- */
-typedef struct HDABDLE
-{
-    /** The actual BDL description. */
-    HDABDLEDESC  Desc;
-    /** Internal state of this BDLE.
-     *  Not part of the actual BDLE registers. */
-    HDABDLESTATE State;
-} HDABDLE;
-AssertCompileSizeAlignment(HDABDLE, 8);
-/** Pointer to a buffer descriptor list entry (BDLE). */
-typedef HDABDLE *PHDABDLE;
 
 /** @name Object lookup functions.
  * @{
@@ -624,24 +592,9 @@ void          hdaProcessInterrupt(PPDMDEVINS pDevIns, PHDASTATE pThis);
 #endif
 /** @} */
 
-/** @name Wall clock (WALCLK) functions.
- * @{
- */
-uint64_t      hdaWalClkGetCurrent(PHDASTATE pThis);
-#ifdef IN_RING3
-bool          hdaR3WalClkSet(PHDASTATE pThis, PHDASTATER3 pThisCC, uint64_t u64WalClk, bool fForce);
-#endif
-/** @} */
-
-/** @name DMA utility functions.
- * @{
- */
-#ifdef IN_RING3
-int           hdaR3DMARead(PPDMDEVINS pDevIns, PHDASTATE pThis, PHDASTREAM pStreamShared, PHDASTREAMR3 pStreamR3,
-                           void *pvBuf, uint32_t cbBuf, uint32_t *pcbRead);
-int           hdaR3DMAWrite(PPDMDEVINS pDevIns, PHDASTATE pThis, PHDASTREAM pStreamShared, PHDASTREAMR3 pStreamR3,
-                            const void *pvBuf, uint32_t cbBuf, uint32_t *pcbWritten);
-#endif
+/** @name Register utility functions.
+ * @{  */
+uint8_t       hdaSDFIFOWToBytes(uint16_t u16RegFIFOW);
 /** @} */
 
 /** @name Register functions.
@@ -660,19 +613,8 @@ int           hdaR3SDFMTToPCMProps(uint16_t u16SDFMT, PPDMAUDIOPCMPROPS pProps);
 # ifdef LOG_ENABLED
 void          hdaR3BDLEDumpAll(PPDMDEVINS pDevIns, PHDASTATE pThis, uint64_t u64BDLBase, uint16_t cBDLE);
 # endif
-int           hdaR3BDLEFetch(PPDMDEVINS pDevIns, PHDABDLE pBDLE, uint64_t u64BaseDMA, uint16_t u16Entry);
-bool          hdaR3BDLEIsComplete(PHDABDLE pBDLE);
-bool          hdaR3BDLENeedsInterrupt(PHDABDLE pBDLE);
 #endif /* IN_RING3 */
 /** @} */
 
-/** @name Device timer functions.
- * @{
- */
-#ifdef IN_RING3
-bool          hdaR3TimerSet(PPDMDEVINS pDevIns, PHDASTREAM pStreamShared, uint64_t u64Expire, bool fForce, uint64_t tsNow);
-#endif
-/** @} */
-
-#endif /* !VBOX_INCLUDED_SRC_Audio_DevHDACommon_h */
+#endif /* !VBOX_INCLUDED_SRC_Audio_DevHdaCommon_h */
 

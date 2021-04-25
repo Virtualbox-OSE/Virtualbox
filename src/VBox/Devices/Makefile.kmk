@@ -593,65 +593,64 @@ endif
  VBoxDD_SOURCES         += \
 	Audio/DevIchAc97.cpp \
 	Audio/DevSB16.cpp \
-	Audio/DevHDA.cpp \
-	Audio/DevHDACommon.cpp \
-	Audio/HDACodec.cpp \
-	Audio/HDAStream.cpp \
-	Audio/HDAStreamChannel.cpp \
-	Audio/HDAStreamMap.cpp \
-	Audio/HDAStreamPeriod.cpp \
+	Audio/DevHda.cpp \
+	Audio/DevHdaCommon.cpp \
+	Audio/DevHdaCodec.cpp \
+	Audio/DevHdaStream.cpp \
+	Audio/DevHdaStreamChannel.cpp \
+	Audio/DevHdaStreamMap.cpp \
+	Audio/AudioHlp.cpp \
 	Audio/AudioMixBuffer.cpp \
 	Audio/AudioMixer.cpp \
 	Audio/DrvAudio.cpp \
-	Audio/DrvAudioCommon.cpp \
-	Audio/DrvHostNullAudio.cpp
+	Audio/DrvHostAudioNull.cpp
 
  ifdef VBOX_WITH_AUDIO_DEBUG
   VBoxDD_DEFS    += VBOX_WITH_AUDIO_DEBUG
   VBoxDD_SOURCES += \
-	Audio/DrvHostDebugAudio.cpp
+	Audio/DrvHostAudioDebug.cpp
  endif
 
  ifdef VBOX_WITH_AUDIO_VALIDATIONKIT
   VBoxDD_DEFS    += VBOX_WITH_AUDIO_VALIDATIONKIT
   VBoxDD_SOURCES += \
-	Audio/DrvHostValidationKit.cpp
+	Audio/DrvHostAudioValidationKit.cpp
  endif
 
  ifeq ($(KBUILD_TARGET),darwin)
   VBoxDD_SOURCES += \
-	Audio/DrvHostCoreAudio.cpp \
-	Audio/DrvHostCoreAudio-auth.mm
+	Audio/DrvHostAudioCoreAudio.cpp \
+	Audio/DrvHostAudioCoreAudioAuth.mm
  endif
 
  ifeq ($(KBUILD_TARGET),win)
   VBoxDD_SOURCES += \
-	Audio/DrvHostDSound.cpp
+	Audio/DrvHostAudioDSound.cpp
   ifdef VBOX_WITH_AUDIO_MMNOTIFICATION_CLIENT
-   VBoxDD_SOURCES += \
-	Audio/VBoxMMNotificationClient.cpp
    VBoxDD_DEFS    += VBOX_WITH_AUDIO_MMNOTIFICATION_CLIENT
+   VBoxDD_SOURCES += \
+	Audio/DrvHostAudioDSoundMMNotifClient.cpp
   endif
  endif
 
  ifdef VBOX_WITH_AUDIO_OSS
   VBoxDD_DEFS    += VBOX_WITH_AUDIO_OSS
   VBoxDD_SOURCES += \
-	Audio/DrvHostOSSAudio.cpp
+	Audio/DrvHostAudioOss.cpp
  endif
 
  ifdef VBOX_WITH_AUDIO_ALSA
   VBoxDD_DEFS    += VBOX_WITH_AUDIO_ALSA
   VBoxDD_SOURCES += \
-	Audio/DrvHostALSAAudio.cpp \
-	Audio/alsa_stubs.c
+	Audio/DrvHostAudioAlsa.cpp \
+	Audio/DrvHostAudioAlsaStubs.cpp
  endif
 
  ifdef VBOX_WITH_AUDIO_PULSE
   VBoxDD_DEFS    += VBOX_WITH_AUDIO_PULSE
   VBoxDD_SOURCES += \
-	Audio/DrvHostPulseAudio.cpp \
-	Audio/pulse_stubs.c
+	Audio/DrvHostAudioPulseAudio.cpp \
+	Audio/DrvHostAudioPulseAudioStubs.cpp
  endif
 
  # --- WARNING! SLIRP MESS AHEAD! ;-) ---
@@ -936,7 +935,7 @@ endif
   	PC/DevPit-i8254.cpp \
   	PC/DevPIC.cpp \
   	PC/DevRTC.cpp \
- 	PC/DevDMA.cpp \
+  	PC/DevDMA.cpp \
   	PC/DevHPET.cpp \
   	Storage/DevATA.cpp \
   	Network/DevPCNet.cpp \
@@ -949,8 +948,8 @@ endif
 
   VBoxDDRC_DEFS         += $(VBOX_AUDIO_DEFS)
   VBoxDDRC_SOURCES      += \
- 	Audio/DevHDA.cpp \
- 	Audio/DevHDACommon.cpp \
+ 	Audio/DevHda.cpp \
+ 	Audio/DevHdaCommon.cpp \
 	Audio/DevIchAc97.cpp
 
   VBoxDDRC_DEFS         += \
@@ -1136,6 +1135,11 @@ endif
  	Network/DrvIntNet.cpp \
  	Network/DrvDedicatedNic.cpp
 
+ ifdef VBOX_WITH_DTRACE_R0
+  VBoxDDR0_USES         += dtrace
+  VBoxDDR0_SOURCES      += build/VBoxDD.d
+ endif
+
  VBoxDDR0_SOURCES.win += Parallel/DrvHostParallel.cpp
 
  VBoxDDR0_DEFS          += \
@@ -1149,9 +1153,10 @@ endif
 
  VBoxDDR0_DEFS += $(VBOX_AUDIO_DEFS)
  VBoxDDR0_SOURCES += \
- 	Audio/DevHDA.cpp \
- 	Audio/DevHDACommon.cpp \
-	Audio/DevIchAc97.cpp
+ 	Audio/DevHda.cpp \
+ 	Audio/DevHdaCommon.cpp \
+ 	Audio/DevHdaStream.cpp \
+ 	Audio/DevIchAc97.cpp
 
  ifdef VBOX_WITH_E1000
   VBoxDDR0_DEFS         += VBOX_WITH_E1000

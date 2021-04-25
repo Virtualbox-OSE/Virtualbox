@@ -1811,8 +1811,16 @@ int vusbDevInit(PVUSBDEV pDev, PPDMUSBINS pUsbIns, const char *pszCaptureFilenam
     /*
      * Create the reset timer.
      */
+    static const char * const s_apszNamesHack[] =
+    {
+        "USB Device Reset Timer  0", "USB Device Reset Timer  1", "USB Device Reset Timer  2", "USB Device Reset Timer  3",
+        "USB Device Reset Timer  4", "USB Device Reset Timer  5", "USB Device Reset Timer  6", "USB Device Reset Timer  7",
+        "USB Device Reset Timer  8", "USB Device Reset Timer  9", "USB Device Reset Timer 10", "USB Device Reset Timer 11",
+        "USB Device Reset Timer 12", "USB Device Reset Timer 13", "USB Device Reset Timer 14", "USB Device Reset Timer 15",
+    };
+    static uint32_t volatile s_idxName = 0;
     rc = PDMUsbHlpTMTimerCreate(pDev->pUsbIns, TMCLOCK_VIRTUAL, vusbDevResetDoneTimer, pDev, 0 /*fFlags*/,
-                                "USB Device Reset Timer",  &pDev->pResetTimer);
+                                s_apszNamesHack[s_idxName++ % RT_ELEMENTS(s_apszNamesHack)],  &pDev->pResetTimer);
     AssertRCReturn(rc, rc);
 
     if (pszCaptureFilename)

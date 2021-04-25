@@ -1081,6 +1081,7 @@ RTEXITCODE handleImportAppliance(HandlerArg *arg)
                         case VirtualSystemDescriptionType_CloudOCISubnetCompartment:
                         case VirtualSystemDescriptionType_CloudPublicSSHKey:
                         case VirtualSystemDescriptionType_BootingFirmware:
+                        case VirtualSystemDescriptionType_CloudInitScriptPath:
                             /** @todo  VirtualSystemDescriptionType_Miscellaneous? */
                             break;
 
@@ -1176,7 +1177,6 @@ static const RTGETOPTDEF g_aExportOptions[] =
     { "--ovf20",                '2', RTGETOPT_REQ_NOTHING },
     { "--opc10",                'c', RTGETOPT_REQ_NOTHING },
     { "--manifest",             'm', RTGETOPT_REQ_NOTHING },    // obsoleted by --options
-    { "--iso",                  'I', RTGETOPT_REQ_NOTHING },    // obsoleted by --options
     { "--vsys",                 's', RTGETOPT_REQ_UINT32 },
     { "--vmname",               'V', RTGETOPT_REQ_STRING },
     { "--product",              'p', RTGETOPT_REQ_STRING },
@@ -1201,6 +1201,7 @@ static const RTGETOPTDEF g_aExportOptions[] =
     { "--cloudlaunchinstance",  'L', RTGETOPT_REQ_STRING },
     { "--cloudlaunchmode",      'M', RTGETOPT_REQ_STRING },
     { "--cloudprivateip",       'i', RTGETOPT_REQ_STRING },
+    { "--cloudinitscriptpath",  'I', RTGETOPT_REQ_STRING },
 };
 
 RTEXITCODE handleExportAppliance(HandlerArg *a)
@@ -1257,9 +1258,9 @@ RTEXITCODE handleExportAppliance(HandlerArg *a)
                     strOvfFormat = "opc-1.0";
                     break;
 
-                case 'I':   // --iso
-                    fExportISOImages = true;
-                    break;
+//              case 'I':   // --iso
+//                  fExportISOImages = true;
+//                  break;
 
                 case 'm':   // --manifest
                     fManifest = true;
@@ -1436,6 +1437,13 @@ RTEXITCODE handleExportAppliance(HandlerArg *a)
                         return errorSyntax(USAGE_EXPORTAPPLIANCE, "Option \"%s\" requires preceding --cloud argument.",
                                            GetState.pDef->pszLong);
                     mapArgsMapsPerVsys[ulCurVsys]["cloudlaunchmode"] = ValueUnion.psz;
+                    break;
+
+                case 'I':   // --cloudinitscriptpath
+                    if (actionType != CLOUD)
+                        return errorSyntax(USAGE_EXPORTAPPLIANCE, "Option \"%s\" requires preceding --cloud argument.",
+                                           GetState.pDef->pszLong);
+                    mapArgsMapsPerVsys[ulCurVsys]["cloudinitscriptpath"] = ValueUnion.psz;
                     break;
 
                 case VINF_GETOPT_NOT_OPTION:
@@ -1629,6 +1637,9 @@ RTEXITCODE handleExportAppliance(HandlerArg *a)
                                              Bstr(itD->second).raw(), NULL);
                     else if (itD->first == "cloudlaunchinstance")
                         pVSD->AddDescription(VirtualSystemDescriptionType_CloudLaunchInstance,
+                                             Bstr(itD->second).raw(), NULL);
+                    else if (itD->first == "cloudinitscriptpath")
+                        pVSD->AddDescription(VirtualSystemDescriptionType_CloudInitScriptPath,
                                              Bstr(itD->second).raw(), NULL);
                 }
             }

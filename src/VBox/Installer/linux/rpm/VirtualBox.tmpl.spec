@@ -19,7 +19,7 @@
 %define %OSE% 1
 %define %PYTHON% 1
 %define VBOXDOCDIR %{_defaultdocdir}/%NAME%
-%global __requires_exclude_from ^/usr/lib/virtualbox/VBoxPython.*$
+%global __requires_exclude_from ^/usr/lib/virtualbox/VBoxPython.*$|^/usr/lib/python.*$|^.*\\.py$
 %{!?python_sitelib: %define python_sitelib %(%{__python} -c "from distutils.sysconfig import get_python_lib; print(get_python_lib())")}
 
 Summary:   Oracle VM VirtualBox
@@ -155,6 +155,8 @@ rm -r src
 %if %{?is_ose:0}%{!?is_ose:1}
   for i in rdesktop-vrdp.tar.gz rdesktop-vrdp-keymaps; do
     mv $i $RPM_BUILD_ROOT/usr/share/virtualbox; done
+  # Very little needed tool causing python compatibility trouble. Do not ship.
+  rm -f $RPM_BUILD_ROOT/usr/share/virtualbox/rdesktop-vrdp-keymaps/convert-map
   mv rdesktop-vrdp $RPM_BUILD_ROOT/usr/bin
 %endif
 for i in additions/VBoxGuestAdditions.iso; do

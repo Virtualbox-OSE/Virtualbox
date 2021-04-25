@@ -541,7 +541,7 @@ ScanSections64 (
           // if the section address is aligned we must align PE/COFF
           mCoffOffset = (UINT32) ((mCoffOffset + shdr->sh_addralign - 1) & ~(shdr->sh_addralign - 1));
         } else {
-          Error (NULL, 0, 3000, "Invalid", "Section address not aligned to its own alignment.");
+          Error (NULL, 0, 3000, "Invalid", "Section address not aligned to its own alignment. sec#%i addr=%#llx align=%#llx", i, shdr->sh_addr, shdr->sh_addralign);
         }
       }
 
@@ -592,7 +592,7 @@ ScanSections64 (
           // if the section address is aligned we must align PE/COFF
           mCoffOffset = (UINT32) ((mCoffOffset + shdr->sh_addralign - 1) & ~(shdr->sh_addralign - 1));
         } else {
-          Error (NULL, 0, 3000, "Invalid", "Section address not aligned to its own alignment.");
+          Error (NULL, 0, 3000, "Invalid", "Section address not aligned to its own alignment. sec#%i addr=%#llx align=%#llx", i, shdr->sh_addr, shdr->sh_addralign);
         }
       }
 
@@ -644,7 +644,7 @@ ScanSections64 (
           // if the section address is aligned we must align PE/COFF
           mCoffOffset = (UINT32) ((mCoffOffset + shdr->sh_addralign - 1) & ~(shdr->sh_addralign - 1));
         } else {
-          Error (NULL, 0, 3000, "Invalid", "Section address not aligned to its own alignment.");
+          Error (NULL, 0, 3000, "Invalid", "Section address not aligned to its own alignment. sec#%i addr=%#llx align=%#llx", i, shdr->sh_addr, shdr->sh_addralign);
         }
       }
       if (shdr->sh_size != 0) {

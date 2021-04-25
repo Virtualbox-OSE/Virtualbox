@@ -262,7 +262,7 @@ static const struct file_operations vbox_fops = {
 	.read = drm_read,
 };
 
-#if RTLNX_VER_MIN(5,9,0)
+#if RTLNX_VER_MIN(5,9,0) || RTLNX_RHEL_MIN(8,4)
 static void
 #else
 static int
@@ -286,7 +286,7 @@ vbox_master_set(struct drm_device *dev,
 	schedule_delayed_work(&vbox->refresh_work, VBOX_REFRESH_PERIOD);
 	mutex_unlock(&vbox->hw_mutex);
 
-#if RTLNX_VER_MAX(5,9,0)
+#if RTLNX_VER_MAX(5,9,0) && !RTLNX_RHEL_MAJ_PREREQ(8,4)
 	return 0;
 #endif
 }
@@ -317,12 +317,11 @@ static struct drm_driver driver = {
 # endif
 	    DRIVER_PRIME,
 #else  /* >= 5.4.0 && RHEL >= 8.3 */
-        .driver_features = DRIVER_MODESET | DRIVER_GEM | DRIVER_HAVE_IRQ,
+		.driver_features = DRIVER_MODESET | DRIVER_GEM | DRIVER_HAVE_IRQ,
 #endif /* <  5.4.0 */
-	.dev_priv_size = 0,
 
 #if RTLNX_VER_MAX(4,19,0) && !RTLNX_RHEL_MAJ_PREREQ(8,3)
-    /* Legacy hooks, but still supported. */
+	/* Legacy hooks, but still supported. */
 	.load = vbox_driver_load,
 	.unload = vbox_driver_unload,
 #endif
@@ -346,31 +345,38 @@ static struct drm_driver driver = {
 
 #if RTLNX_VER_MAX(4,7,0)
 	.gem_free_object = vbox_gem_free_object,
-#else
-	.gem_free_object_unlocked = vbox_gem_free_object,
 #endif
 	.dumb_create = vbox_dumb_create,
 	.dumb_map_offset = vbox_dumb_mmap_offset,
 #if RTLNX_VER_MAX(3,12,0) && !RTLNX_RHEL_MAJ_PREREQ(7,3)
 	.dumb_destroy = vbox_dumb_destroy,
-#else
+#elif RTLNX_VER_MAX(5,12,0)
 	.dumb_destroy = drm_gem_dumb_destroy,
 #endif
 	.prime_handle_to_fd = drm_gem_prime_handle_to_fd,
 	.prime_fd_to_handle = drm_gem_prime_fd_to_handle,
-	.gem_prime_export = drm_gem_prime_export,
+
 	.gem_prime_import = drm_gem_prime_import,
+	.gem_prime_import_sg_table = vbox_gem_prime_import_sg_table,
+	.gem_prime_mmap = vbox_gem_prime_mmap,
+
+#if RTLNX_VER_MAX(5,11,0)
+	.dev_priv_size = 0,
+# if RTLNX_VER_MIN(4,7,0)
+	.gem_free_object_unlocked = vbox_gem_free_object,
+# endif
+	.gem_prime_export = drm_gem_prime_export,
 	.gem_prime_pin = vbox_gem_prime_pin,
 	.gem_prime_unpin = vbox_gem_prime_unpin,
 	.gem_prime_get_sg_table = vbox_gem_prime_get_sg_table,
-	.gem_prime_import_sg_table = vbox_gem_prime_import_sg_table,
 	.gem_prime_vmap = vbox_gem_prime_vmap,
 	.gem_prime_vunmap = vbox_gem_prime_vunmap,
-	.gem_prime_mmap = vbox_gem_prime_mmap,
+#endif
 };
 
 static int __init vbox_init(void)
 {
+	printk("vboxvideo: loading version " VBOX_VERSION_STRING " r" __stringify(VBOX_SVN_REV) "\n");
 #if defined(CONFIG_VGA_CONSOLE) || RTLNX_VER_MIN(4,7,0)
 	if (vgacon_text_force() && vbox_modeset == -1)
 		return -EINVAL;

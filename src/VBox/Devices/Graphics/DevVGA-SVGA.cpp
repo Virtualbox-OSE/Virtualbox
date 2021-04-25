@@ -1570,7 +1570,7 @@ DECLINLINE(void) vmsvgaHCUpdatePitch(PVGASTATE pThis, PVGASTATECC pThisCC)
     else if (uFifoPitchLock)
         pThis->svga.cbScanline = uFifoPitchLock;
     else
-        pThis->svga.cbScanline = pThis->svga.uWidth * (RT_ALIGN(pThis->svga.uBpp, 8) / 8);
+        pThis->svga.cbScanline = (uint32_t)pThis->svga.uWidth * (RT_ALIGN(pThis->svga.uBpp, 8) / 8);
 
     if ((uFifoMin / sizeof(uint32_t)) <= SVGA_FIFO_PITCHLOCK)
         pThis->svga.u32PitchLock = pThis->svga.cbScanline;
@@ -1707,7 +1707,7 @@ static VBOXSTRICTRC vmsvgaWritePort(PPDMDEVINS pDevIns, PVGASTATE pThis, PVGASTA
 
         case SVGA_REG_WIDTH:
             STAM_REL_COUNTER_INC(&pThis->svga.StatRegWidthWr);
-            if (pThis->svga.uWidth != u32)
+            if (u32 <= pThis->svga.u32MaxWidth && u32 != pThis->svga.uWidth)
             {
 #if defined(IN_RING3) || defined(IN_RING0)
                 pThis->svga.uWidth = u32;
@@ -1723,7 +1723,7 @@ static VBOXSTRICTRC vmsvgaWritePort(PPDMDEVINS pDevIns, PVGASTATE pThis, PVGASTA
 
         case SVGA_REG_HEIGHT:
             STAM_REL_COUNTER_INC(&pThis->svga.StatRegHeightWr);
-            if (pThis->svga.uHeight != u32)
+            if (u32 <= pThis->svga.u32MaxHeight && u32 != pThis->svga.uHeight)
             {
                 pThis->svga.uHeight = u32;
                 if (pThis->svga.fEnabled)
@@ -1739,7 +1739,7 @@ static VBOXSTRICTRC vmsvgaWritePort(PPDMDEVINS pDevIns, PVGASTATE pThis, PVGASTA
 
         case SVGA_REG_BITS_PER_PIXEL:      /* Current bpp in the guest */
             STAM_REL_COUNTER_INC(&pThis->svga.StatRegBitsPerPixelWr);
-            if (pThis->svga.uBpp != u32)
+            if (u32 <= 32 && pThis->svga.uBpp != u32)
             {
 #if defined(IN_RING3) || defined(IN_RING0)
                 pThis->svga.uBpp = u32;
@@ -6635,6 +6635,10 @@ DECLCALLBACK(void) vmsvgaR3PowerOn(PPDMDEVINS pDevIns)
         {
             /* Initialize FIFO 3D capabilities. */
             vmsvgaR3InitFifo3DCaps(pThisCC);
+        }
+        else {
+            LogRel(("VMSVGA3d: 3D support disabled! (vmsvga3dPowerOn -> %Rrc)\n", rc));
+            pThis->svga.f3DEnabled = false;
         }
     }
 # else  /* !VBOX_WITH_VMSVGA3D */

@@ -955,6 +955,7 @@ DECL_NO_INLINE(IEM_STATIC, DECL_NO_RETURN(void)) iemRaiseSelectorInvalidAccessJm
 IEM_STATIC VBOXSTRICTRC     iemMemMap(PVMCPUCC pVCpu, void **ppvMem, size_t cbMem, uint8_t iSegReg, RTGCPTR GCPtrMem, uint32_t fAccess);
 IEM_STATIC VBOXSTRICTRC     iemMemCommitAndUnmap(PVMCPUCC pVCpu, void *pvMem, uint32_t fAccess);
 IEM_STATIC VBOXSTRICTRC     iemMemFetchDataU32(PVMCPUCC pVCpu, uint32_t *pu32Dst, uint8_t iSegReg, RTGCPTR GCPtrMem);
+IEM_STATIC VBOXSTRICTRC     iemMemFetchDataU32_ZX_U64(PVMCPUCC pVCpu, uint64_t *pu64Dst, uint8_t iSegReg, RTGCPTR GCPtrMem);
 IEM_STATIC VBOXSTRICTRC     iemMemFetchDataU64(PVMCPUCC pVCpu, uint64_t *pu64Dst, uint8_t iSegReg, RTGCPTR GCPtrMem);
 IEM_STATIC VBOXSTRICTRC     iemMemFetchSysU8(PVMCPUCC pVCpu, uint32_t *pu32Dst, uint8_t iSegReg, RTGCPTR GCPtrMem);
 IEM_STATIC VBOXSTRICTRC     iemMemFetchSysU16(PVMCPUCC pVCpu, uint32_t *pu32Dst, uint8_t iSegReg, RTGCPTR GCPtrMem);
@@ -6986,6 +6987,9 @@ DECLINLINE(void) iemFpuActualizeSseStateForChange(PVMCPUCC pVCpu)
     CPUMRZFpuStateActualizeForChange(pVCpu);
 #endif
     IEM_CTX_IMPORT_NORET(pVCpu, CPUMCTX_EXTRN_X87 | CPUMCTX_EXTRN_SSE_AVX | CPUMCTX_EXTRN_OTHER_XSAVE | CPUMCTX_EXTRN_XCRx);
+
+    /* Make sure any changes are loaded the next time around. */
+    pVCpu->cpum.GstCtx.CTX_SUFF(pXState)->Hdr.bmXState |= XSAVE_C_SSE;
 }
 
 
@@ -7024,6 +7028,9 @@ DECLINLINE(void) iemFpuActualizeAvxStateForChange(PVMCPUCC pVCpu)
     CPUMRZFpuStateActualizeForChange(pVCpu);
 #endif
     IEM_CTX_IMPORT_NORET(pVCpu, CPUMCTX_EXTRN_X87 | CPUMCTX_EXTRN_SSE_AVX | CPUMCTX_EXTRN_OTHER_XSAVE | CPUMCTX_EXTRN_XCRx);
+
+    /* Just assume we're going to make changes to the SSE and YMM_HI parts. */
+    pVCpu->cpum.GstCtx.CTX_SUFF(pXState)->Hdr.bmXState |= XSAVE_C_YMM | XSAVE_C_SSE;
 }
 
 
@@ -9149,6 +9156,30 @@ IEM_STATIC VBOXSTRICTRC iemMemFetchDataU32(PVMCPUCC pVCpu, uint32_t *pu32Dst, ui
     if (rc == VINF_SUCCESS)
     {
         *pu32Dst = *pu32Src;
+        rc = iemMemCommitAndUnmap(pVCpu, (void *)pu32Src, IEM_ACCESS_DATA_R);
+    }
+    return rc;
+}
+
+
+/**
+ * Fetches a data dword and zero extends it to a qword.
+ *
+ * @returns Strict VBox status code.
+ * @param   pVCpu               The cross context virtual CPU structure of the calling thread.
+ * @param   pu64Dst             Where to return the qword.
+ * @param   iSegReg             The index of the segment register to use for
+ *                              this access.  The base and limits are checked.
+ * @param   GCPtrMem            The address of the guest memory.
+ */
+IEM_STATIC VBOXSTRICTRC iemMemFetchDataU32_ZX_U64(PVMCPUCC pVCpu, uint64_t *pu64Dst, uint8_t iSegReg, RTGCPTR GCPtrMem)
+{
+    /* The lazy approach for now... */
+    uint32_t const *pu32Src;
+    VBOXSTRICTRC rc = iemMemMap(pVCpu, (void **)&pu32Src, sizeof(*pu32Src), iSegReg, GCPtrMem, IEM_ACCESS_DATA_R);
+    if (rc == VINF_SUCCESS)
+    {
+        *pu64Dst = *pu32Src;
         rc = iemMemCommitAndUnmap(pVCpu, (void *)pu32Src, IEM_ACCESS_DATA_R);
     }
     return rc;
@@ -13879,6 +13910,7 @@ DECL_FORCE_INLINE(VBOXSTRICTRC) iemExecStatusCodeFiddling(PVMCPUCC pVCpu, VBOXST
                       || rcStrict == VINF_PATM_CHECK_PATCH_PAGE
                       /* nested hw.virt codes: */
                       || rcStrict == VINF_VMX_VMEXIT
+                      || rcStrict == VINF_VMX_INTERCEPT_NOT_ACTIVE
                       || rcStrict == VINF_VMX_MODIFIES_BEHAVIOR
                       || rcStrict == VINF_SVM_VMEXIT
                       , ("rcStrict=%Rrc\n", VBOXSTRICTRC_VAL(rcStrict)));
@@ -14623,6 +14655,7 @@ VMM_INT_DECL(VBOXSTRICTRC) IEMInjectTrap(PVMCPUCC pVCpu, uint8_t u8TrapNo, TRPME
                 case X86_XCPT_SS:
                 case X86_XCPT_PF:
                 case X86_XCPT_AC:
+                case X86_XCPT_GP:
                     fFlags |= IEM_XCPT_FLAGS_ERR;
                     break;
             }

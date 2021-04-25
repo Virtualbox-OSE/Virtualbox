@@ -1349,7 +1349,7 @@ tclass()
   zzBLOCK(zztasp1);
   zzMake0;
   {
-  char *t=NULL; TCnode *e; int go=1,tok,totok; TermEntry *p, *term, *toterm;
+  char *t=NULL; TCnode *e; int go=1,tok,totok; TermEntry *p = NULL, *term, *toterm;
   char *akaString=NULL; int save_file; int save_line;
   char *totext=NULL;
   zzmatch(118); zzCONSUME;

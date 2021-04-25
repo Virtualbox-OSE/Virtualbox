@@ -1,6 +1,6 @@
-/* $Id: DevHDACommon.cpp $ */
+/* $Id: DevHdaCommon.cpp $ */
 /** @file
- * DevHDACommon.cpp - Shared HDA device functions.
+ * Intel HD Audio Controller Emulation - Common stuff.
  *
  * @todo r=bird: Shared with whom exactly?
  */
@@ -23,18 +23,16 @@
 *********************************************************************************************************************************/
 #include <iprt/assert.h>
 #include <iprt/errcore.h>
+#include <iprt/time.h>
 
 #include <VBox/AssertGuest.h>
 
 #define LOG_GROUP LOG_GROUP_DEV_HDA
 #include <VBox/log.h>
 
-#include "DrvAudio.h"
-
-#include "DevHDA.h"
-#include "DevHDACommon.h"
-
-#include "HDAStream.h"
+#include "DevHda.h"
+#include "DevHdaCommon.h"
+#include "DevHdaStream.h"
 
 
 /**
@@ -81,117 +79,29 @@ void hdaProcessInterrupt(PPDMDEVINS pDevIns, PHDASTATE pThis)
 }
 
 /**
- * Retrieves the currently set value for the wall clock.
+ * Retrieves the number of bytes of a FIFOW register.
  *
- * @return  IPRT status code.
- * @return  Currently set wall clock value.
- * @param   pThis               The shared HDA device state.
- *
- * @remark  Operation is atomic.
+ * @return Number of bytes of a given FIFOW register.
+ * @param  u16RegFIFOW          FIFOW register to convert.
  */
-uint64_t hdaWalClkGetCurrent(PHDASTATE pThis)
+uint8_t hdaSDFIFOWToBytes(uint16_t u16RegFIFOW)
 {
-    return ASMAtomicReadU64(&pThis->u64WalClk);
+    uint32_t cb;
+    switch (u16RegFIFOW)
+    {
+        case HDA_SDFIFOW_8B:  cb = 8;  break;
+        case HDA_SDFIFOW_16B: cb = 16; break;
+        case HDA_SDFIFOW_32B: cb = 32; break;
+        default:
+            AssertFailedStmt(cb = 32); /* Paranoia. */
+            break;
+    }
+
+    Assert(RT_IS_POWER_OF_TWO(cb));
+    return cb;
 }
 
 #ifdef IN_RING3
-
-/**
- * Helper for hdaR3WalClkSet.
- */
-DECLINLINE(PHDASTREAMPERIOD) hdaR3SinkToStreamPeriod(PHDAMIXERSINK pSink)
-{
-    PHDASTREAM pStream = hdaR3GetSharedStreamFromSink(pSink);
-    if (pStream)
-        return &pStream->State.Period;
-    return NULL;
-}
-
-/**
- * Sets the actual WALCLK register to the specified wall clock value.
- * The specified wall clock value only will be set (unless fForce is set to true) if all
- * handled HDA streams have passed (in time) that value. This guarantees that the WALCLK
- * register stays in sync with all handled HDA streams.
- *
- * @return  true if the WALCLK register has been updated, false if not.
- * @param   pThis               The shared HDA device state.
- * @param   pThisCC             The ring-3 HDA device state.
- * @param   u64WalClk           Wall clock value to set WALCLK register to.
- * @param   fForce              Whether to force setting the wall clock value or not.
- */
-bool hdaR3WalClkSet(PHDASTATE pThis, PHDASTATER3 pThisCC, uint64_t u64WalClk, bool fForce)
-{
-    const bool     fFrontPassed       = hdaR3StreamPeriodHasPassedAbsWalClk( hdaR3SinkToStreamPeriod(&pThisCC->SinkFront), u64WalClk);
-    const uint64_t u64FrontAbsWalClk  = hdaR3StreamPeriodGetAbsElapsedWalClk(hdaR3SinkToStreamPeriod(&pThisCC->SinkFront));
-# ifdef VBOX_WITH_AUDIO_HDA_51_SURROUND
-#  error "Implement me!"
-# endif
-
-    const bool     fLineInPassed      = hdaR3StreamPeriodHasPassedAbsWalClk (hdaR3SinkToStreamPeriod(&pThisCC->SinkLineIn), u64WalClk);
-    const uint64_t u64LineInAbsWalClk = hdaR3StreamPeriodGetAbsElapsedWalClk(hdaR3SinkToStreamPeriod(&pThisCC->SinkLineIn));
-# ifdef VBOX_WITH_HDA_MIC_IN
-    const bool     fMicInPassed       = hdaR3StreamPeriodHasPassedAbsWalClk (hdaR3SinkToStreamPeriod(&pThisCC->SinkMicIn),  u64WalClk);
-    const uint64_t u64MicInAbsWalClk  = hdaR3StreamPeriodGetAbsElapsedWalClk(hdaR3SinkToStreamPeriod(&pThisCC->SinkMicIn));
-# endif
-
-# ifdef VBOX_STRICT
-    const uint64_t u64WalClkCur       = ASMAtomicReadU64(&pThis->u64WalClk);
-# endif
-
-    /* Only drive the WALCLK register forward if all (active) stream periods have passed
-     * the specified point in time given by u64WalClk. */
-    if (  (   fFrontPassed
-# ifdef VBOX_WITH_AUDIO_HDA_51_SURROUND
-#  error "Implement me!"
-# endif
-           && fLineInPassed
-# ifdef VBOX_WITH_HDA_MIC_IN
-           && fMicInPassed
-# endif
-          )
-       || fForce)
-    {
-        if (!fForce)
-        {
-            /* Get the maximum value of all periods we need to handle.
-             * Not the most elegant solution, but works for now ... */
-            u64WalClk = RT_MAX(u64WalClk, u64FrontAbsWalClk);
-# ifdef VBOX_WITH_AUDIO_HDA_51_SURROUND
-#  error "Implement me!"
-# endif
-            u64WalClk = RT_MAX(u64WalClk, u64LineInAbsWalClk);
-# ifdef VBOX_WITH_HDA_MIC_IN
-            u64WalClk = RT_MAX(u64WalClk, u64MicInAbsWalClk);
-# endif
-
-# ifdef VBOX_STRICT
-            AssertMsg(u64WalClk >= u64WalClkCur,
-                      ("Setting WALCLK to a value going backwards does not make any sense (old %RU64 vs. new %RU64)\n",
-                       u64WalClkCur, u64WalClk));
-            if (u64WalClk == u64WalClkCur)     /* Setting a stale value? */
-            {
-                if (pThis->u8WalClkStaleCnt++ > 3)
-                    AssertMsgFailed(("Setting WALCLK to a stale value (%RU64) too often isn't a good idea really. "
-                                     "Good luck with stuck audio stuff.\n", u64WalClk));
-            }
-            else
-                pThis->u8WalClkStaleCnt = 0;
-# endif
-        }
-
-        /* Set the new WALCLK value. */
-        ASMAtomicWriteU64(&pThis->u64WalClk, u64WalClk);
-    }
-
-    const uint64_t u64WalClkNew = hdaWalClkGetCurrent(pThis);
-
-    Log3Func(("Cur: %RU64, New: %RU64 (force %RTbool) -> %RU64 %s\n",
-              u64WalClkCur, u64WalClk, fForce,
-              u64WalClkNew, u64WalClkNew == u64WalClk ? "[OK]" : "[DELAYED]"));
-
-    return (u64WalClkNew == u64WalClk);
-}
-
 /**
  * Returns the default (mixer) sink from a given SD#.
  * Returns NULL if no sink is found.
@@ -233,7 +143,6 @@ PHDAMIXERSINK hdaR3GetDefaultSink(PHDASTATER3 pThisCC, uint8_t uSD)
 
     return NULL;
 }
-
 #endif /* IN_RING3 */
 
 /**
@@ -297,148 +206,6 @@ PHDASTREAM hdaR3GetSharedStreamFromSink(PHDAMIXERSINK pSink)
 
     /** @todo Do something with the channel mapping here? */
     return pSink->pStreamShared;
-}
-
-/*
- * Reads DMA data from a given HDA output stream.
- *
- * @return  IPRT status code.
- * @param   pDevIns             The device instance.
- * @param   pThis               The shared HDA device state (for stats).
- * @param   pStreamShared       HDA output stream to read DMA data from - shared bits.
- * @param   pStreamR3           HDA output stream to read DMA data from - shared ring-3.
- * @param   pvBuf               Where to store the read data.
- * @param   cbBuf               How much to read in bytes.
- * @param   pcbRead             Returns read bytes from DMA. Optional.
- */
-int hdaR3DMARead(PPDMDEVINS pDevIns, PHDASTATE pThis, PHDASTREAM pStreamShared, PHDASTREAMR3 pStreamR3,
-                 void *pvBuf, uint32_t cbBuf, uint32_t *pcbRead)
-{
-    RT_NOREF(pThis);
-    PHDABDLE pBDLE = &pStreamShared->State.BDLE;
-
-    int rc = VINF_SUCCESS;
-
-    uint32_t cbReadTotal = 0;
-    uint32_t cbLeft      = RT_MIN(cbBuf, pBDLE->Desc.u32BufSize - pBDLE->State.u32BufOff);
-
-# ifdef HDA_DEBUG_SILENCE
-    uint64_t   csSilence = 0;
-
-    pStreamCC->Dbg.cSilenceThreshold = 100;
-    pStreamCC->Dbg.cbSilenceReadMin  = _1M;
-# endif
-
-    RTGCPHYS GCPhysChunk = pBDLE->Desc.u64BufAddr + pBDLE->State.u32BufOff;
-
-    while (cbLeft)
-    {
-        uint32_t cbChunk = RT_MIN(cbLeft, pStreamShared->u16FIFOS);
-
-        rc = PDMDevHlpPhysRead(pDevIns, GCPhysChunk, (uint8_t *)pvBuf + cbReadTotal, cbChunk);
-        AssertRCBreak(rc);
-
-# ifdef HDA_DEBUG_SILENCE
-        uint16_t *pu16Buf = (uint16_t *)pvBuf;
-        for (size_t i = 0; i < cbChunk / sizeof(uint16_t); i++)
-        {
-            if (*pu16Buf == 0)
-                csSilence++;
-            else
-                break;
-            pu16Buf++;
-        }
-# endif
-        if (RT_LIKELY(!pStreamR3->Dbg.Runtime.fEnabled))
-        { /* likely */ }
-        else
-            DrvAudioHlpFileWrite(pStreamR3->Dbg.Runtime.pFileDMARaw, (uint8_t *)pvBuf + cbReadTotal, cbChunk, 0 /* fFlags */);
-
-        STAM_COUNTER_ADD(&pThis->StatBytesRead, cbChunk);
-
-        /* advance */
-        Assert(cbLeft    >= cbChunk);
-        GCPhysChunk       = (GCPhysChunk + cbChunk) % pBDLE->Desc.u32BufSize;
-        cbReadTotal      += cbChunk;
-        cbLeft           -= cbChunk;
-    }
-
-# ifdef HDA_DEBUG_SILENCE
-    if (csSilence)
-        pStreamR3->Dbg.csSilence += csSilence;
-
-    if (   csSilence == 0
-        && pStreamR3->Dbg.csSilence   >  pStreamR3->Dbg.cSilenceThreshold
-        && pStreamR3->Dbg.cbReadTotal >= pStreamR3->Dbg.cbSilenceReadMin)
-    {
-        LogFunc(("Silent block detected: %RU64 audio samples\n", pStreamR3->Dbg.csSilence));
-        pStreamR3->Dbg.csSilence = 0;
-    }
-# endif
-
-    if (RT_SUCCESS(rc))
-    {
-        if (pcbRead)
-            *pcbRead = cbReadTotal;
-    }
-
-    return rc;
-}
-
-/**
- * Writes audio data from an HDA input stream's FIFO to its associated DMA area.
- *
- * @return  IPRT status code.
- * @param   pDevIns             The device instance.
- * @param   pThis               The shared HDA device state (for stats).
- * @param   pStreamShared       HDA input stream to write audio data to - shared.
- * @param   pStreamR3           HDA input stream to write audio data to - ring-3.
- * @param   pvBuf               Data to write.
- * @param   cbBuf               How much (in bytes) to write.
- * @param   pcbWritten          Returns written bytes on success. Optional.
- */
-int hdaR3DMAWrite(PPDMDEVINS pDevIns, PHDASTATE pThis, PHDASTREAM pStreamShared, PHDASTREAMR3 pStreamR3,
-                  const void *pvBuf, uint32_t cbBuf, uint32_t *pcbWritten)
-{
-    RT_NOREF(pThis);
-    PHDABDLE    pBDLE          = &pStreamShared->State.BDLE;
-    int         rc             = VINF_SUCCESS;
-    uint32_t    cbWrittenTotal = 0;
-    uint32_t    cbLeft         = RT_MIN(cbBuf, pBDLE->Desc.u32BufSize - pBDLE->State.u32BufOff);
-    RTGCPHYS    GCPhysChunk    = pBDLE->Desc.u64BufAddr + pBDLE->State.u32BufOff;
-    while (cbLeft)
-    {
-        uint32_t cbChunk = RT_MIN(cbLeft, pStreamShared->u16FIFOS);
-
-        /* Sanity checks. */
-        Assert(cbChunk <= pBDLE->Desc.u32BufSize - pBDLE->State.u32BufOff);
-
-        if (RT_LIKELY(!pStreamR3->Dbg.Runtime.fEnabled))
-        { /* likely */ }
-        else
-            DrvAudioHlpFileWrite(pStreamR3->Dbg.Runtime.pFileDMARaw, (uint8_t *)pvBuf + cbWrittenTotal, cbChunk, 0 /* fFlags */);
-
-        rc = PDMDevHlpPCIPhysWrite(pDevIns, GCPhysChunk, (uint8_t *)pvBuf + cbWrittenTotal, cbChunk);
-        AssertRCReturn(rc, rc);
-
-        STAM_COUNTER_ADD(&pThis->StatBytesWritten, cbChunk);
-
-        /* advance */
-        Assert(cbLeft  >= cbChunk);
-        cbWrittenTotal += (uint32_t)cbChunk;
-        GCPhysChunk     = (GCPhysChunk + cbChunk) % pBDLE->Desc.u32BufSize;
-        cbLeft         -= (uint32_t)cbChunk;
-    }
-
-    if (RT_SUCCESS(rc))
-    {
-        if (pcbWritten)
-            *pcbWritten = cbWrittenTotal;
-    }
-    else
-        LogFunc(("Failed with %Rrc\n", rc));
-
-    return rc;
 }
 
 #endif /* IN_RING3 */
@@ -606,126 +373,5 @@ void hdaR3BDLEDumpAll(PPDMDEVINS pDevIns, PHDASTATE pThis, uint64_t u64BDLBase, 
     }
 }
 # endif /* LOG_ENABLED */
-
-/**
- * Fetches a Bundle Descriptor List Entry (BDLE) from the DMA engine.
- *
- * @param   pDevIns             The device instance.
- * @param   pBDLE               Where to store the fetched result.
- * @param   u64BaseDMA          Address base of DMA engine to use.
- * @param   u16Entry            BDLE entry to fetch.
- */
-int hdaR3BDLEFetch(PPDMDEVINS pDevIns, PHDABDLE pBDLE, uint64_t u64BaseDMA, uint16_t u16Entry)
-{
-    AssertPtrReturn(pBDLE,   VERR_INVALID_POINTER);
-    AssertReturn(u64BaseDMA, VERR_INVALID_PARAMETER);
-
-    if (!u64BaseDMA)
-    {
-        LogRel2(("HDA: Unable to fetch BDLE #%RU16 - no base DMA address set (yet)\n", u16Entry));
-        return VERR_NOT_FOUND;
-    }
-    /** @todo Compare u16Entry with LVI. */
-
-    int rc = PDMDevHlpPhysRead(pDevIns, u64BaseDMA + (u16Entry * sizeof(HDABDLEDESC)),
-                               &pBDLE->Desc, sizeof(pBDLE->Desc));
-
-    if (RT_SUCCESS(rc))
-    {
-        /* Reset internal state. */
-        RT_ZERO(pBDLE->State);
-        pBDLE->State.u32BDLIndex = u16Entry;
-    }
-
-    Log3Func(("Entry #%d @ 0x%x: %R[bdle], rc=%Rrc\n", u16Entry, u64BaseDMA + (u16Entry * sizeof(HDABDLEDESC)), pBDLE, rc));
-
-
-    return VINF_SUCCESS;
-}
-
-/**
- * Tells whether a given BDLE is complete or not.
- *
- * @return  true if BDLE is complete, false if not.
- * @param   pBDLE               BDLE to retrieve status for.
- */
-bool hdaR3BDLEIsComplete(PHDABDLE pBDLE)
-{
-    bool fIsComplete = false;
-
-    if (   !pBDLE->Desc.u32BufSize /* There can be BDLEs with 0 size. */
-        || (pBDLE->State.u32BufOff >= pBDLE->Desc.u32BufSize))
-    {
-        Assert(pBDLE->State.u32BufOff == pBDLE->Desc.u32BufSize);
-        fIsComplete = true;
-    }
-
-    Log3Func(("%R[bdle] => %s\n", pBDLE, fIsComplete ? "COMPLETE" : "INCOMPLETE"));
-
-    return fIsComplete;
-}
-
-/**
- * Tells whether a given BDLE needs an interrupt or not.
- *
- * @return  true if BDLE needs an interrupt, false if not.
- * @param   pBDLE               BDLE to retrieve status for.
- */
-bool hdaR3BDLENeedsInterrupt(PHDABDLE pBDLE)
-{
-    return (pBDLE->Desc.fFlags & HDA_BDLE_F_IOC);
-}
-
-/**
- * Sets the virtual device timer to a new expiration time.
- *
- * @returns Whether the new expiration time was set or not.
- * @param   pDevIns         The device instance.
- * @param   pStreamShared   HDA stream to set timer for (shared).
- * @param   tsExpire        New (virtual) expiration time to set.
- * @param   fForce          Whether to force setting the expiration time or not.
- * @param   tsNow           The current clock timestamp if available, 0 if not.
- *
- * @remark  This function takes all active HDA streams and their
- *          current timing into account. This is needed to make sure
- *          that all streams can match their needed timing.
- *
- *          To achieve this, the earliest (lowest) timestamp of all
- *          active streams found will be used for the next scheduling slot.
- *
- *          Forcing a new expiration time will override the above mechanism.
- */
-bool hdaR3TimerSet(PPDMDEVINS pDevIns, PHDASTREAM pStreamShared, uint64_t tsExpire, bool fForce, uint64_t tsNow)
-{
-    AssertPtr(pStreamShared);
-
-    if (!tsNow)
-        tsNow = PDMDevHlpTimerGet(pDevIns, pStreamShared->hTimer);
-
-    if (!fForce)
-    {
-        /** @todo r=bird: hdaR3StreamTransferIsScheduled() also does a
-         * PDMDevHlpTimerGet(), so, some callers does one, this does, and then we do
-         * right afterwards == very inefficient! */
-        if (hdaR3StreamTransferIsScheduled(pStreamShared, tsNow))
-        {
-            uint64_t const tsNext = hdaR3StreamTransferGetNext(pStreamShared);
-            if (tsExpire > tsNext)
-                tsExpire = tsNext;
-        }
-    }
-
-    /*
-     * Make sure to not go backwards in time, as this will assert in TMTimerSet().
-     * This in theory could happen in hdaR3StreamTransferGetNext() from above.
-     */
-    if (tsExpire < tsNow)
-        tsExpire = tsNow;
-
-    int rc = PDMDevHlpTimerSet(pDevIns, pStreamShared->hTimer, tsExpire);
-    AssertRCReturn(rc, false);
-
-    return true;
-}
 
 #endif /* IN_RING3 */

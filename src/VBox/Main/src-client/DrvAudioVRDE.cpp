@@ -27,16 +27,15 @@
 #include "ConsoleImpl.h"
 #include "ConsoleVRDPServer.h"
 
-#include "../../Devices/Audio/DrvAudio.h"
-
 #include <iprt/mem.h>
 #include <iprt/cdefs.h>
 #include <iprt/circbuf.h>
 
-#include <VBox/vmm/pdmaudioifs.h>
-#include <VBox/vmm/pdmdrv.h>
-#include <VBox/RemoteDesktop/VRDE.h>
 #include <VBox/vmm/cfgm.h>
+#include <VBox/vmm/pdmdrv.h>
+#include <VBox/vmm/pdmaudioifs.h>
+#include <VBox/vmm/pdmaudioinline.h>
+#include <VBox/RemoteDesktop/VRDE.h>
 #include <VBox/err.h>
 
 
@@ -92,9 +91,9 @@ static int vrdeCreateStreamIn(PVRDESTREAM pStreamVRDE, PPDMAUDIOSTREAMCFG pCfgRe
     pCfgAcq->Props.cShift      = PDMAUDIOPCMPROPS_MAKE_SHIFT_PARMS(pCfgAcq->Props.cbSample, pCfgAcq->Props.cChannels);
 
     /* According to the VRDP docs, the VRDP server stores audio in 200ms chunks. */
-    const uint32_t cFramesVrdpServer = DrvAudioHlpMilliToFrames(200  /* ms */, &pCfgAcq->Props);
+    const uint32_t cFramesVrdpServer = PDMAudioPropsMilliToFrames(&pCfgAcq->Props, 200 /*ms*/);
 
-    int rc = RTCircBufCreate(&pStreamVRDE->In.pCircBuf, DrvAudioHlpFramesToBytes(cFramesVrdpServer, &pCfgAcq->Props));
+    int rc = RTCircBufCreate(&pStreamVRDE->In.pCircBuf, PDMAudioPropsFramesToBytes(&pCfgAcq->Props, cFramesVrdpServer));
     if (RT_SUCCESS(rc))
     {
         /*
@@ -136,9 +135,9 @@ static int vrdeCreateStreamOut(PVRDESTREAM pStreamVRDE, PPDMAUDIOSTREAMCFG pCfgR
         pCfgAcq->Props.cShift    = PDMAUDIOPCMPROPS_MAKE_SHIFT_PARMS(pCfgAcq->Props.cbSample, pCfgAcq->Props.cChannels);
 
         /* According to the VRDP docs, the VRDP server stores audio in 200ms chunks. */
-        pCfgAcq->Backend.cFramesPeriod     = DrvAudioHlpMilliToFrames(20  /* ms */, &pCfgAcq->Props);
-        pCfgAcq->Backend.cFramesBufferSize = DrvAudioHlpMilliToFrames(100 /* ms */, &pCfgAcq->Props);
-        pCfgAcq->Backend.cFramesPreBuffering     = pCfgAcq->Backend.cFramesPeriod * 2;
+        pCfgAcq->Backend.cFramesPeriod       = PDMAudioPropsMilliToFrames(&pCfgAcq->Props, 20  /*ms*/);
+        pCfgAcq->Backend.cFramesBufferSize   = PDMAudioPropsMilliToFrames(&pCfgAcq->Props, 100 /*ms*/);
+        pCfgAcq->Backend.cFramesPreBuffering = pCfgAcq->Backend.cFramesPeriod * 2;
     }
 
     return VINF_SUCCESS;
@@ -173,7 +172,7 @@ static int vrdeControlStreamIn(PDRVAUDIOVRDE pDrv, PVRDESTREAM pStreamVRDE, PDMA
         case PDMAUDIOSTREAMCMD_ENABLE:
         {
             rc = pDrv->pConsoleVRDPServer->SendAudioInputBegin(NULL, pStreamVRDE,
-                                                               DrvAudioHlpMilliToFrames(200 /* ms */, &pStreamVRDE->pCfg->Props),
+                                                               PDMAudioPropsMilliToFrames(&pStreamVRDE->pCfg->Props, 200 /*ms*/),
                                                                pStreamVRDE->pCfg->Props.uHz, pStreamVRDE->pCfg->Props.cChannels,
                                                                pStreamVRDE->pCfg->Props.cbSample * 8 /* Bit */);
             if (rc == VERR_NOT_SUPPORTED)
@@ -436,7 +435,7 @@ static DECLCALLBACK(int) drvAudioVrdeHA_StreamCreate(PPDMIHOSTAUDIO pInterface, 
 
     if (RT_SUCCESS(rc))
     {
-        pStreamVRDE->pCfg = DrvAudioHlpStreamCfgDup(pCfgAcq);
+        pStreamVRDE->pCfg = PDMAudioStrmCfgDup(pCfgAcq);
         if (!pStreamVRDE->pCfg)
             rc = VERR_NO_MEMORY;
     }
@@ -467,7 +466,7 @@ static DECLCALLBACK(int) drvAudioVrdeHA_StreamDestroy(PPDMIHOSTAUDIO pInterface,
 
     if (RT_SUCCESS(rc))
     {
-        DrvAudioHlpStreamCfgFree(pStreamVRDE->pCfg);
+        PDMAudioStrmCfgFree(pStreamVRDE->pCfg);
         pStreamVRDE->pCfg = NULL;
     }
 

@@ -4012,6 +4012,26 @@ static int vbeR3ParseBitmap(PVGASTATECC pThisCC)
                                ("Unsupported %u compression.\n", pThisCC->LogoCompression),
                                VERR_INVALID_PARAMETER);
 
+        AssertLogRelMsgReturn(pBmpInfo->FileSize > pBmpInfo->Offset,
+                               ("Wrong bitmap data offset %u.\n", pBmpInfo->Offset),
+                               VERR_INVALID_PARAMETER);
+
+        uint32_t cbFileData = pBmpInfo->FileSize - pBmpInfo->Offset;
+        uint32_t cbImageData = pThisCC->cxLogo * pThisCC->cyLogo * pThisCC->cLogoPlanes;
+
+        /* TBD: Take 32bit rows padding into account */
+        if (pThisCC->cLogoBits == 4)
+        {
+            cbImageData /= 2;
+        } else if (pThisCC->cLogoBits == 24)
+        {
+            cbImageData *= 3;
+        }
+
+        AssertLogRelMsgReturn(cbImageData <= cbFileData,
+            ("Wrong BMP header data %d\n", cbImageData),
+            VERR_INVALID_PARAMETER);
+
         /*
          * Read bitmap palette
          */

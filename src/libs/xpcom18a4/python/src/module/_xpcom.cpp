@@ -84,7 +84,11 @@ extern PYXPCOM_EXPORT void PyXPCOM_InterpreterState_Ensure();
 #  define MANGLE_MODULE_INIT(a_Name)    RT_CONCAT(a_Name, MODULE_NAME_SUFFIX)
 # endif
 # ifdef VBOX_PYXPCOM_VERSIONED
-#  if   PY_VERSION_HEX >= 0x03080000 && PY_VERSION_HEX < 0x03090000
+#  if   PY_VERSION_HEX >= 0x03090000 && PY_VERSION_HEX < 0x030a0000
+#   define MODULE_NAME    MANGLE_MODULE_NAME("VBoxPython3_9")
+#   define initVBoxPython MANGLE_MODULE_INIT(PyInit_VBoxPython3_9)
+
+#  elif PY_VERSION_HEX >= 0x03080000 && PY_VERSION_HEX < 0x03090000
 #   define MODULE_NAME    MANGLE_MODULE_NAME("VBoxPython3_8")
 #   define initVBoxPython MANGLE_MODULE_INIT(PyInit_VBoxPython3_8)
 
@@ -863,8 +867,8 @@ using namespace com;
 # include <iprt/alloca.h>
 # include <iprt/stream.h>
 
-/** Set if NS_ShutdownXPCOM has been called successfully already and we don't 
- * need to do it again during module termination.  This avoids assertion in the 
+/** Set if NS_ShutdownXPCOM has been called successfully already and we don't
+ * need to do it again during module termination.  This avoids assertion in the
  * VBoxCOM glue code. */
 static bool g_fComShutdownAlready = true;
 

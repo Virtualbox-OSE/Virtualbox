@@ -2,7 +2,8 @@
 /** @file
  * Audio mixing routines for multiplexing audio sources in device emulations.
  *
- * == Overview
+ * Overview
+ * ========
  *
  * This mixer acts as a layer between the audio connector interface and
  * the actual device emulation, providing mechanisms for audio sources (input)
@@ -27,7 +28,8 @@
  * so-called mixer streams, which then in turn have pointers to the actual
  * PDM audio input/output streams.
  *
- * == Playback
+ * Playback
+ * ========
  *
  * For output sinks there can be one or more mixing stream attached.
  * As the host sets the overall pace for the device emulation (virtual time
@@ -45,7 +47,8 @@
  * conversion must be done, instead of each stream having to iterate over the
  * data.
  *
- * == Recording
+ * Recording
+ * =========
  *
  * For input sinks only one mixing stream at a time can be the recording
  * source currently. A recording source is optional, e.g. it is possible to
@@ -73,12 +76,13 @@
 #include <VBox/log.h>
 #include "AudioMixer.h"
 #include "AudioMixBuffer.h"
-#include "DrvAudio.h"
+#include "AudioHlp.h"
 
 #include <VBox/vmm/pdm.h>
 #include <VBox/err.h>
 #include <VBox/vmm/mm.h>
 #include <VBox/vmm/pdmaudioifs.h>
+#include <VBox/vmm/pdmaudioinline.h>
 
 #include <iprt/alloc.h>
 #include <iprt/asm-math.h>
@@ -218,14 +222,13 @@ int AudioMixerCreateSink(PAUDIOMIXER pMixer, const char *pszName, AUDMIXSINKDIR 
  *
  * @returns IPRT status code.
  * @param   pcszName            Name of the audio mixer.
- * @param   fFlags              Creation flags. Not used at the moment and must be 0.
+ * @param   fFlags              Creation flags.
  * @param   ppMixer             Pointer which returns the created mixer object.
  */
 int AudioMixerCreate(const char *pcszName, uint32_t fFlags, PAUDIOMIXER *ppMixer)
 {
-    RT_NOREF(fFlags);
     AssertPtrReturn(pcszName, VERR_INVALID_POINTER);
-    /** @todo Add fFlags validation. */
+    AssertReturn   (!(fFlags & ~AUDMIXER_FLAGS_VALID_MASK), VERR_INVALID_PARAMETER);
     AssertPtrReturn(ppMixer, VERR_INVALID_POINTER);
 
     int rc = VINF_SUCCESS;
@@ -244,6 +247,11 @@ int AudioMixerCreate(const char *pcszName, uint32_t fFlags, PAUDIOMIXER *ppMixer
         {
             pMixer->cSinks = 0;
             RTListInit(&pMixer->lstSinks);
+
+            pMixer->fFlags = fFlags;
+
+            if (pMixer->fFlags & AUDMIXER_FLAGS_DEBUG)
+                LogRel(("Audio Mixer: Debug mode enabled\n"));
 
             /* Set master volume to the max. */
             pMixer->VolMaster.fMuted = false;
@@ -318,14 +326,13 @@ void AudioMixerDestroy(PAUDIOMIXER pMixer)
          * will not be valid anymore after calling audioMixerRemoveSinkInternal(). */
         PAUDMIXSINK pSinkToRemove = pSink;
 
-        audioMixerRemoveSinkInternal(pMixer, pSinkToRemove);
-
         audioMixerSinkDestroyInternal(pSinkToRemove);
+        audioMixerRemoveSinkInternal(pMixer, pSinkToRemove);
 
         RTMemFree(pSinkToRemove);
     }
 
-    pMixer->cSinks = 0;
+    Assert(pMixer->cSinks == 0);
 
     if (pMixer->pszName)
     {
@@ -576,7 +583,7 @@ int AudioMixerSinkCreateStream(PAUDMIXSINK pSink,
     /** @todo Validate fFlags. */
     /* ppStream is optional. */
 
-    if (pConn->pfnGetStatus(pConn, PDMAUDIODIR_ANY) == PDMAUDIOBACKENDSTS_NOT_ATTACHED)
+    if (pConn->pfnGetStatus(pConn, PDMAUDIODIR_DUPLEX) == PDMAUDIOBACKENDSTS_NOT_ATTACHED)
         return VERR_AUDIO_BACKEND_NOT_ATTACHED;
 
     PAUDMIXSTREAM pMixStream = (PAUDMIXSTREAM)RTMemAllocZ(sizeof(AUDMIXSTREAM));
@@ -610,11 +617,11 @@ int AudioMixerSinkCreateStream(PAUDMIXSINK pSink,
      * Initialize the host-side configuration for the stream to be created.
      * Always use the sink's PCM audio format as the host side when creating a stream for it.
      */
-    AssertMsg(DrvAudioHlpPCMPropsAreValid(&pSink->PCMProps),
+    AssertMsg(AudioHlpPcmPropsAreValid(&pSink->PCMProps),
               ("%s: Does not (yet) have a format set when it must\n", pSink->pszName));
 
     PDMAUDIOSTREAMCFG CfgHost;
-    rc = DrvAudioHlpPCMPropsToStreamCfg(&pSink->PCMProps, &CfgHost);
+    rc = PDMAudioStrmCfgInitWithProps(&CfgHost, &pSink->PCMProps);
     AssertRCReturn(rc, rc);
 
     /* Apply the sink's direction for the configuration to use to
@@ -652,7 +659,7 @@ int AudioMixerSinkCreateStream(PAUDMIXSINK pSink,
 
     if (RT_SUCCESS(rc))
     {
-        rc = RTCircBufCreate(&pMixStream->pCircBuf, DrvAudioHlpMilliToBytes(100 /* ms */, &pSink->PCMProps)); /** @todo Make this configurable. */
+        rc = RTCircBufCreate(&pMixStream->pCircBuf, PDMAudioPropsMilliToBytes(&pSink->PCMProps, 100 /*ms*/)); /** @todo Make this configurable. */
         AssertRC(rc);
     }
 
@@ -846,6 +853,12 @@ static int audioMixerSinkInit(PAUDMIXSINK pSink, PAUDIOMIXER pMixer, const char 
         pSink->VolumeCombined.fMuted = false;
         pSink->VolumeCombined.uLeft  = PDMAUDIO_VOLUME_MAX;
         pSink->VolumeCombined.uRight = PDMAUDIO_VOLUME_MAX;
+
+        const size_t cbScratchBuf = _1K; /** @todo Make this configurable? */
+
+        pSink->pabScratchBuf = (uint8_t *)RTMemAlloc(cbScratchBuf);
+        AssertPtrReturn(pSink->pabScratchBuf, VERR_NO_MEMORY);
+        pSink->cbScratchBuf  = cbScratchBuf;
     }
 
     LogFlowFuncLeaveRC(rc);
@@ -906,15 +919,27 @@ static void audioMixerSinkDestroyInternal(PAUDMIXSINK pSink)
         audioMixerStreamDestroyInternal(pStreamToRemove);
     }
 
-#ifdef VBOX_AUDIO_MIXER_DEBUG
-    DrvAudioHlpFileDestroy(pSink->Dbg.pFile);
-    pSink->Dbg.pFile = NULL;
-#endif
+    if (   pSink->pParent
+        && pSink->pParent->fFlags & AUDMIXER_FLAGS_DEBUG)
+    {
+        AudioHlpFileDestroy(pSink->Dbg.pFile);
+        pSink->Dbg.pFile = NULL;
+    }
 
     if (pSink->pszName)
     {
         RTStrFree(pSink->pszName);
         pSink->pszName = NULL;
+    }
+
+    if (pSink->pabScratchBuf)
+    {
+        Assert(pSink->cbScratchBuf);
+
+        RTMemFree(pSink->pabScratchBuf);
+        pSink->pabScratchBuf = NULL;
+
+        pSink->cbScratchBuf = 0;
     }
 
     AudioMixBufDestroy(&pSink->MixBuf);
@@ -1014,7 +1039,7 @@ uint32_t AudioMixerSinkGetWritable(PAUDMIXSINK pSink)
     }
 
     Log3Func(("[%s] cbWritable=%RU32 (%RU64ms)\n",
-              pSink->pszName, cbWritable, DrvAudioHlpBytesToMilli(cbWritable, &pSink->PCMProps)));
+              pSink->pszName, cbWritable, PDMAudioPropsBytesToMilli(&pSink->PCMProps, cbWritable)));
 
     int rc2 = RTCritSectLeave(&pSink->CritSect);
     AssertRC(rc2);
@@ -1249,10 +1274,11 @@ int AudioMixerSinkRead(PAUDMIXSINK pSink, AUDMIXOP enmOp, void *pvBuf, uint32_t 
             /* Update our last read time stamp. */
             pSink->tsLastReadWrittenNs = RTTimeNanoTS();
 
-#ifdef VBOX_AUDIO_MIXER_DEBUG
-            int rc2 = DrvAudioHlpFileWrite(pSink->Dbg.pFile, pvBuf, cbRead, 0 /* fFlags */);
-            AssertRC(rc2);
-#endif
+            if (pSink->pParent->fFlags & AUDMIXER_FLAGS_DEBUG)
+            {
+                int rc2 = AudioHlpFileWrite(pSink->Dbg.pFile, pvBuf, cbRead, 0 /* fFlags */);
+                AssertRC(rc2);
+            }
         }
     }
 
@@ -1446,13 +1472,13 @@ int AudioMixerSinkSetFormat(PAUDMIXSINK pSink, PPDMAUDIOPCMPROPS pPCMProps)
 {
     AssertPtrReturn(pSink,     VERR_INVALID_POINTER);
     AssertPtrReturn(pPCMProps, VERR_INVALID_POINTER);
-    AssertReturn(DrvAudioHlpPCMPropsAreValid(pPCMProps), VERR_INVALID_PARAMETER);
+    AssertReturn(AudioHlpPcmPropsAreValid(pPCMProps), VERR_INVALID_PARAMETER);
 
     int rc = RTCritSectEnter(&pSink->CritSect);
     if (RT_FAILURE(rc))
         return rc;
 
-    if (DrvAudioHlpPCMPropsAreEqual(&pSink->PCMProps, pPCMProps)) /* Bail out early if PCM properties are equal. */
+    if (PDMAudioPropsAreEqual(&pSink->PCMProps, pPCMProps)) /* Bail out early if PCM properties are equal. */
     {
         rc = RTCritSectLeave(&pSink->CritSect);
         AssertRC(rc);
@@ -1472,7 +1498,7 @@ int AudioMixerSinkSetFormat(PAUDMIXSINK pSink, PPDMAUDIOPCMPROPS pPCMProps)
     /* Also update the sink's mixing buffer format. */
     AudioMixBufDestroy(&pSink->MixBuf);
     rc = AudioMixBufInit(&pSink->MixBuf, pSink->pszName, &pSink->PCMProps,
-                         DrvAudioHlpMilliToFrames(100 /* ms */, &pSink->PCMProps)); /** @todo Make this configurable? */
+                         PDMAudioPropsMilliToFrames(&pSink->PCMProps, 100 /*ms*/)); /** @todo Make this configurable? */
     if (RT_SUCCESS(rc))
     {
         PAUDMIXSTREAM pStream;
@@ -1482,33 +1508,24 @@ int AudioMixerSinkSetFormat(PAUDMIXSINK pSink, PPDMAUDIOPCMPROPS pPCMProps)
         }
     }
 
-#ifdef VBOX_AUDIO_MIXER_DEBUG
-    if (RT_SUCCESS(rc))
+    if (   RT_SUCCESS(rc)
+        && (pSink->pParent->fFlags & AUDMIXER_FLAGS_DEBUG))
     {
-        DrvAudioHlpFileClose(pSink->Dbg.pFile);
+        AudioHlpFileClose(pSink->Dbg.pFile);
 
-        char szTemp[RTPATH_MAX];
-        int rc2 = RTPathTemp(szTemp, sizeof(szTemp));
+        char szName[64];
+        RTStrPrintf(szName, sizeof(szName), "MixerSink-%s", pSink->pszName);
+
+        char szFile[RTPATH_MAX];
+        int rc2 = AudioHlpFileNameGet(szFile, RT_ELEMENTS(szFile), NULL /* Use temporary directory */, szName,
+                                      0 /* Instance */, PDMAUDIOFILETYPE_WAV, PDMAUDIOFILENAME_FLAGS_NONE);
         if (RT_SUCCESS(rc2))
         {
-            /** @todo Sanitize sink name. */
-
-            char szName[64];
-            RTStrPrintf(szName, sizeof(szName), "MixerSink-%s", pSink->pszName);
-
-            char szFile[RTPATH_MAX];
-            rc2 = DrvAudioHlpFileNameGet(szFile, RT_ELEMENTS(szFile), szTemp, szName,
-                                         0 /* Instance */, PDMAUDIOFILETYPE_WAV, PDMAUDIOFILENAME_FLAGS_NONE);
+            rc2 = AudioHlpFileCreate(PDMAUDIOFILETYPE_WAV, szFile, PDMAUDIOFILE_FLAGS_NONE, &pSink->Dbg.pFile);
             if (RT_SUCCESS(rc2))
-            {
-                rc2 = DrvAudioHlpFileCreate(PDMAUDIOFILETYPE_WAV, szFile, PDMAUDIOFILE_FLAGS_NONE,
-                                            &pSink->Dbg.pFile);
-                if (RT_SUCCESS(rc2))
-                    rc2 = DrvAudioHlpFileOpen(pSink->Dbg.pFile, PDMAUDIOFILE_DEFAULT_OPEN_FLAGS, &pSink->PCMProps);
-            }
+                rc2 = AudioHlpFileOpen(pSink->Dbg.pFile, PDMAUDIOFILE_DEFAULT_OPEN_FLAGS, &pSink->PCMProps);
         }
     }
-#endif
 
     int rc2 = RTCritSectLeave(&pSink->CritSect);
     AssertRC(rc2);
@@ -1674,6 +1691,10 @@ static int audioMixerSinkUpdateInternal(PAUDMIXSINK pSink)
         && pSink->In.pStreamRecSource == NULL)
         return rc;
 
+    /* Sanity. */
+    AssertPtr(pSink->pabScratchBuf);
+    Assert(pSink->cbScratchBuf);
+
     /* Update each mixing sink stream's status. */
     PAUDMIXSTREAM pMixStream;
     RTListForEach(&pSink->lstStreams, pMixStream, AUDMIXSTREAM, Node)
@@ -1688,20 +1709,20 @@ static int audioMixerSinkUpdateInternal(PAUDMIXSINK pSink)
     /* Next, try to write (multiplex) as much audio data as possible to all connected mixer streams. */
     uint32_t cbToWriteToStreams = AudioMixBufUsedBytes(&pSink->MixBuf);
 
-    uint8_t arrChunkBuf[_1K]; /** @todo Hm ... some zero copy / shared buffers would be nice! */
     while (cbToWriteToStreams)
     {
         uint32_t cfChunk;
-        rc  = AudioMixBufAcquireReadBlock(&pSink->MixBuf, arrChunkBuf, RT_MIN(cbToWriteToStreams, sizeof(arrChunkBuf)), &cfChunk);
+        rc  = AudioMixBufAcquireReadBlock(&pSink->MixBuf, pSink->pabScratchBuf, RT_MIN(cbToWriteToStreams, (uint32_t)pSink->cbScratchBuf),
+                                          &cfChunk);
         if (RT_FAILURE(rc))
             break;
 
-        const uint32_t cbChunk = DrvAudioHlpFramesToBytes(cfChunk, &pSink->PCMProps);
-        Assert(cbChunk <= sizeof(arrChunkBuf));
+        const uint32_t cbChunk = PDMAudioPropsFramesToBytes(&pSink->PCMProps, cfChunk);
+        Assert(cbChunk <= pSink->cbScratchBuf);
 
         /* Multiplex the current chunk in a synchronized fashion to all connected streams. */
         uint32_t cbChunkWrittenMin = 0;
-        rc = audioMixerSinkMultiplexSync(pSink, AUDMIXOP_COPY, arrChunkBuf, cbChunk, &cbChunkWrittenMin);
+        rc = audioMixerSinkMultiplexSync(pSink, AUDMIXOP_COPY, pSink->pabScratchBuf, cbChunk, &cbChunkWrittenMin);
         if (RT_SUCCESS(rc))
         {
             RTListForEach(&pSink->lstStreams, pMixStream, AUDMIXSTREAM, Node)
@@ -2100,7 +2121,7 @@ int AudioMixerSinkWrite(PAUDMIXSINK pSink, AUDMIXOP enmOp, const void *pvBuf, ui
         if (RT_FAILURE(rc))
             break;
 
-        const uint32_t cbWrittenChunk = DrvAudioHlpFramesToBytes(cfWritten, &pSink->PCMProps);
+        const uint32_t cbWrittenChunk = PDMAudioPropsFramesToBytes(&pSink->PCMProps, cfWritten);
 
         Assert(cbToWrite >= cbWrittenChunk);
         cbToWrite -= cbWrittenChunk;
@@ -2161,19 +2182,19 @@ static int audioMixerStreamUpdateStatus(PAUDMIXSTREAM pMixStream)
     {
         const uint32_t fStreamStatus = pMixStream->pConn->pfnStreamGetStatus(pMixStream->pConn, pMixStream->pStream);
 
-        if (DrvAudioHlpStreamStatusIsReady(fStreamStatus))
+        if (PDMAudioStrmStatusIsReady(fStreamStatus))
             pMixStream->fStatus |= AUDMIXSTREAM_STATUS_ENABLED;
 
         AssertPtr(pMixStream->pSink);
         switch (pMixStream->pSink->enmDir)
         {
             case AUDMIXSINKDIR_INPUT:
-                if (DrvAudioHlpStreamStatusCanRead(fStreamStatus))
+                if (PDMAudioStrmStatusCanRead(fStreamStatus))
                    pMixStream->fStatus |= AUDMIXSTREAM_STATUS_CAN_READ;
                 break;
 
             case AUDMIXSINKDIR_OUTPUT:
-                if (DrvAudioHlpStreamStatusCanWrite(fStreamStatus))
+                if (PDMAudioStrmStatusCanWrite(fStreamStatus))
                    pMixStream->fStatus |= AUDMIXSTREAM_STATUS_CAN_WRITE;
                 break;
 

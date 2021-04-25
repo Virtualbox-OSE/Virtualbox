@@ -842,6 +842,7 @@ typedef struct GstCtrlPreparedSession
     /** The key size. */
     uint32_t    cbKey;
     /** The key bytes. */
+    RT_FLEXIBLE_ARRAY_EXTENSION
     uint8_t     abKey[RT_FLEXIBLE_ARRAY];
 } GstCtrlPreparedSession;
 
@@ -1127,8 +1128,12 @@ int GstCtrlService::clientMakeMeMaster(ClientState *pClient, VBOXHGCMCALLHANDLE 
     ASSERT_GUEST_RETURN(cParms == 0, VERR_WRONG_PARAMETER_COUNT);
 
     uint32_t fRequestor = mpHelpers->pfnGetRequestor(hCall);
+    /* The next assertion triggers upgrading GAs on some linux guests. Problem is that VBoxService is
+       restarted after installation but the kernel module hasn't been reloaded, so things are out
+       of wack.  Just reboot. */
     ASSERT_GUEST_LOGREL_MSG_RETURN(fRequestor != VMMDEV_REQUESTOR_LEGACY,
-                                   ("Outdated VBoxGuest w/o requestor support. Please update!\n"),
+                                   ("Guest is using outdated VBoxGuest w/o requestor support.\n"
+                                    "Please update guest additions (or restart guest if you just did)!\n"),
                                    VERR_VERSION_MISMATCH);
     ASSERT_GUEST_LOGREL_MSG_RETURN(!(fRequestor & VMMDEV_REQUESTOR_USER_DEVICE), ("fRequestor=%#x\n", fRequestor),
                                    VERR_ACCESS_DENIED);

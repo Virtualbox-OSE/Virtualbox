@@ -130,39 +130,39 @@ ALIASES                += \
 
 # The following is for device configuration options.
 ALIASES                += \
-	devcfgm{6}="\xrefitem lst_cfgm \"Device Config: \1\" \"VM Configuration Values\" \
-<b>Name:</b> [Device Instance]/\1 <br> \
-<b>Type:</b> \2 <br> \
-<b>Unit:</b> \6 <br> \
-<b>Min:</b> \3 <br> \
-<b>Max:</b> \4 <br> \
-<b>Default:</b> \5 <br> \
+	devcfgm{7}="\xrefitem lst_cfgm \"Device Config: \1/\2\" \"VM Configuration Values\" \
+<b>Name:</b> /Devices/\1/#/Config/\2 <br> \
+<b>Type:</b> \3 <br> \
+<b>Unit:</b> \7 <br> \
+<b>Min:</b> \4 <br> \
+<b>Max:</b> \5 <br> \
+<b>Default:</b> \6 <br> \
 "
 ALIASES                += \
-	devcfgm{5}="\xrefitem lst_cfgm \"Device Config: \1\" \"VM Configuration Values\" \
-<b>Name:</b> [Device Instance]/\1 <br> \
-<b>Type:</b> \2 <br> \
-<b>Min:</b> \3 <br> \
-<b>Max:</b> \4 <br> \
-<b>Default:</b> \5 <br> \
+	devcfgm{6}="\xrefitem lst_cfgm \"Device Config: \1/\2\" \"VM Configuration Values\" \
+<b>Name:</b> /Devices/\1/#1/Config/\2 <br> \
+<b>Type:</b> \3 <br> \
+<b>Min:</b> \4 <br> \
+<b>Max:</b> \5 <br> \
+<b>Default:</b> \6 <br> \
 "
 ALIASES                += \
-	devcfgm{4}="\xrefitem lst_cfgm \"Device Config: \1\" \"VM Configuration Values\" \
-<b>Name:</b> [Device Instance]/\1 <br> \
-<b>Type:</b> \2 <br> \
-<b>Min:</b> \3 <br> \
-<b>Max:</b> \4 <br> \
+	devcfgm{5}="\xrefitem lst_cfgm \"Device Config: \1/\2\" \"VM Configuration Values\" \
+<b>Name:</b> /Devices\1/#1/Config/\2 <br> \
+<b>Type:</b> \3 <br> \
+<b>Min:</b> \4 <br> \
+<b>Max:</b> \5 <br> \
 "
 ALIASES                += \
-	devcfgm{3}="\xrefitem lst_cfgm \"Device Config: \1\" \"VM Configuration Values\" \
-<b>Name:</b> [Device Instance]/\1 <br> \
-<b>Type:</b> \2 <br> \
-<b>Default:</b> \3 <br> \
+	devcfgm{4}="\xrefitem lst_cfgm \"Device Config: \1/\2\" \"VM Configuration Values\" \
+<b>Name:</b> /Devices\1/#1/Config/\2 <br> \
+<b>Type:</b> \3 <br> \
+<b>Default:</b> \4 <br> \
 "
 ALIASES                += \
-	devcfgm{2}="\xrefitem lst_cfgm \"Device Config: \1\" \"VM Configuration Values\" \
-<b>Name:</b> [Device Instance]/\1 <br> \
-<b>Type:</b> \2 <br> \
+	devcfgm{3}="\xrefitem lst_cfgm \"Device Config: \1/\2\" \"VM Configuration Values\" \
+<b>Name:</b> /Devices\1/#1/Config/\2 <br> \
+<b>Type:</b> \3 <br> \
 "
 
 # The following is for driver configuration options.
@@ -575,6 +575,12 @@ PREDEFINED += \
     DECL_FORCE_INLINE(type)=DECLINLINE(type) \
     DECL_NO_INLINE(type)=type \
     DECLCALLBACK(type)=type \
+    "DECLCALLBACKPTR(type,name)=type (* name) " \
+    "DECLCALLBACKMEMBER(type,name)=type (* name) " \
+    "DECLRCCALLBACKMEMBER(type,name,args)=type (* name) args" \
+    "DECLR3CALLBACKMEMBER(type,name,args)=type (* name) args" \
+    "DECLR0CALLBACKMEMBER(type,name,args)=type (* name) args" \
+    "DECLRGCALLBACKMEMBER(type,name,args)=type (* name) args" \
     DECLEXPORT(type)=type \
     DECLIMPORT(type)=type \
     DECLHIDDEN(type)=type \
@@ -757,33 +763,13 @@ PREDEFINED          += \
     VBOX_WITH_HGCM
 
 EXPAND_AS_DEFINED      = \
-    RCPTRTYPE \
-    R3PTRTYPE \
-    R0PTRTYPE \
-    HCPTRTYPE \
-    R3R0PTRTYPE \
-    \
     ARCH_BITS \
     R3_ARCH_BITS \
     R0_ARCH_BITS \
     GC_ARCH_BITS \
     HC_ARCH_BITS \
     \
-    DECLEXPORT \
-    DECLIMPORT \
-    DECLASM \
     DECLASMTYPE \
-    DECLCALLBACK \
-    DECLCALLBACKMEMBER \
-    DECLCALLBACKPTR \
-    DECLHCCALLBACKMEMBER \
-    DECLRCCALLBACKMEMBER \
-    DECLR3CALLBACKMEMBER \
-    DECLR0CALLBACKMEMBER \
-    DECLRGCALLBACKMEMBER \
-    DECLINLINE \
-    DECL_FORCE_INLINE \
-    DECLHIDDEN \
     CTXSUFF \
     OTHERCTXSUFF \
     CTXMID \

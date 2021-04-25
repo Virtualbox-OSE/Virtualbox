@@ -139,7 +139,7 @@ int main(int argc, char **argv)
                 return 1;
 
             case 'V':
-                RTPrintf("$Revision: 135976 $\n");
+                RTPrintf("$Revision: 141505 $\n");
                 return 0;
 
             default:

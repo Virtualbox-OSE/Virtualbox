@@ -3805,6 +3805,7 @@ typedef struct OMFDETAILSALLOC
     /** Pointer to the next allocation. */
     struct OMFDETAILSALLOC *pNext;
     /** The allocated bytes. */
+    RT_FLEXIBLE_ARRAY_EXTENSION
     uint8_t                 abData[RT_FLEXIBLE_ARRAY];
 } OMFDETAILSALLOC;
 typedef OMFDETAILSALLOC *POMFDETAILSALLOC;
@@ -5491,7 +5492,7 @@ int main(int argc, char **argv)
                         break;
 
                     case 'V':
-                        printf("%s\n", "$Revision: 135976 $");
+                        printf("%s\n", "$Revision: 142330 $");
                         return 0;
 
                     case '?':
